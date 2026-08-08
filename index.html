@@ -1,0 +1,2392 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Dom Tavares — ERP de Barbearia</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<style>
+  /* Tema escuro (opcional — o padrão do app é o claro, em body.light) */
+  :root {
+    --bg: #14171b;
+    --surface: #1b1f24;
+    --surface-2: #21262c;
+    --surface-3: #2a3037;
+    --border: #2e353d;
+    --border-light: #3d4650;
+    --text: #e6eaef;
+    --text-dim: #97a1ad;
+    --text-mute: #6b7684;
+    --accent: #4a90d9;
+    --accent-bright: #68a6e6;
+    --accent-soft: rgba(74,144,217,.16);
+    --on-accent: #0f1418;
+    /* status: agendado(cinza claro)/confirmado(azul)/concluído(verde)/cancelado(cinza)/faltou(vermelho) */
+    --st-pend: #7a8593;           --st-pend-soft: rgba(122,133,147,.20);
+    --st-wait: #9aa5b3;           --st-wait-soft: rgba(154,165,179,.18);
+    --st-late: #d15b53;           --st-late-soft: rgba(209,91,83,.18);
+    --st-done: #58a878;           --st-done-soft: rgba(88,168,120,.20);
+    --green: #58a878;   --green-soft: rgba(88,168,120,.18);   --green-bright: #6fbf8e;
+    --red: #d15b53;     --red-soft: rgba(209,91,83,.16);      --red-bright: #e2756d;
+    --blue: #68a6e6;    --blue-soft: rgba(104,166,230,.18);
+    --yellow: #d9a63c;  --yellow-soft: rgba(217,166,60,.16);
+    --font-display: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    --font-body: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    --font-cond: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    --radius: 10px;
+    --shadow-sm: 0 2px 8px rgba(0,0,0,.28);
+    --shadow-md: 0 6px 24px rgba(0,0,0,.38);
+    --shadow-lg: 0 16px 48px rgba(0,0,0,.55);
+    font-size: 15px;
+  }
+  /* Tema claro — padrão do app */
+  body.light {
+    --bg: #f4f6f8;
+    --surface: #ffffff;
+    --surface-2: #f2f4f7;
+    --surface-3: #e8ebef;
+    --border: #dfe3e8;
+    --border-light: #cbd2da;
+    --text: #14181d;
+    --text-dim: #58636f;
+    --text-mute: #6b7684;   /* claro lava os cinzas: mute mais escuro que no dark p/ manter leitura */
+    --accent: #2f6fb0;
+    --accent-bright: #2a6199;
+    --accent-soft: rgba(47,111,176,.10);
+    --on-accent: #ffffff;
+    --st-pend: #7a8593;           --st-pend-soft: rgba(122,133,147,.14);
+    /* tons de texto das pills: escurecidos até passarem 4.5:1 sobre o próprio fundo tingido */
+    --st-wait: #5a6472;           --st-wait-soft: rgba(107,118,132,.13);
+    --st-late: #b5342b;           --st-late-soft: rgba(192,57,47,.11);
+    --st-done: #2a6f48;           --st-done-soft: rgba(47,125,81,.12);
+    --green: #2a6f48;   --green-soft: rgba(47,125,81,.11);    --green-bright: #2a6f48;
+    --red: #b5342b;     --red-soft: rgba(192,57,47,.11);      --red-bright: #b5342b;
+    --blue: #2a6199;    --blue-soft: rgba(47,111,176,.12);
+    --yellow: #a9761a;  --yellow-soft: rgba(169,118,26,.12);
+    --shadow-sm: 0 1px 3px rgba(16,24,40,.06);
+    --shadow-md: 0 4px 16px rgba(16,24,40,.09);
+    --shadow-lg: 0 12px 36px rgba(16,24,40,.13);
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg); color: var(--text); font-family: var(--font-body);
+    min-height: 100vh; transition: background .25s, color .25s;
+    -webkit-font-smoothing: antialiased;
+  }
+  /* textura cinematográfica (só no dark) */
+  body:not(.light)::before {
+    content: ''; position: fixed; inset: 0; z-index: 0; pointer-events: none;
+    background-image:
+      linear-gradient(rgba(255,255,255,.013) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255,255,255,.013) 1px, transparent 1px);
+    background-size: 64px 64px;
+  }
+  body:not(.light)::after {
+    content: ''; position: fixed; inset: 0; z-index: 0; pointer-events: none;
+    background: radial-gradient(ellipse 95% 65% at 50% 0%, transparent 52%, rgba(0,0,0,.55) 100%);
+  }
+  h1, h2, h3, .dw-title, .cal-title, .tbl-title, .m-title { font-family: var(--font-display); }
+  button, input, select, textarea { font-family: inherit; }
+
+  /* ════════ Janela / sidebar / chrome ════════ */
+  .appwin {
+    position: relative; z-index: 1; margin: 20px auto;
+    display: flex; align-items: stretch;
+    width: calc(100% - 40px); max-width: 1380px; height: calc(100vh - 40px);
+    border: 1px solid var(--border); border-radius: 16px;
+    background: var(--surface); box-shadow: var(--shadow-lg); overflow: hidden;
+  }
+  body:not(.light) .appwin { background: rgba(255,255,255,.022); }
+  @media (max-width: 760px) { .appwin { width: 100%; height: 100vh; margin: 0; border: none; border-radius: 0; } }
+  .bottom-nav { display: none; }
+
+  .app-sidebar {
+    width: 216px; flex-shrink: 0; display: flex; flex-direction: column;
+    background: var(--surface-2); border-right: 1px solid var(--border);
+    transition: width .22s ease; overflow: hidden; position: relative;
+  }
+  body:not(.light) .app-sidebar { background: rgba(255,255,255,.03); }
+  .appwin.sidebar-collapsed .app-sidebar { width: 72px; }
+  .sb-top { display: flex; flex-direction: column; align-items: center; gap: 9px; padding: 14px 12px 16px; border-bottom: 1px solid var(--border); }
+  .sb-burger {
+    width: 28px; height: 28px; border-radius: 8px; flex-shrink: 0; align-self: flex-end;
+    border: 1px solid var(--border); background: var(--surface); color: var(--text-dim); cursor: pointer;
+    display: flex; align-items: center; justify-content: center; transition: all .15s;
+  }
+  .sb-burger:hover { color: var(--accent); border-color: var(--accent); }
+  .appwin.sidebar-collapsed .sb-burger { align-self: center; }
+  .sb-logo {
+    width: 44px; height: 44px; border-radius: 50%; flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center;
+    background: var(--accent);
+    color: var(--on-accent); font-weight: 700; font-size: 1rem; letter-spacing: -.5px;
+    box-shadow: var(--shadow-sm);
+  }
+  .sb-brand { text-align: center; line-height: 1.2; }
+  .sb-brand .b1 { font-family: var(--font-display); font-size: .92rem; font-weight: 700; }
+  .sb-brand .b2 { font-size: .58rem; color: var(--text-mute); text-transform: uppercase; letter-spacing: 1.6px; margin-top: 2px; }
+  .appwin.sidebar-collapsed .sb-brand { display: none; }
+
+  .sb-nav { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 6px; padding: 16px 12px; overflow-y: auto; }
+  .tab-btn {
+    background: transparent; border: none; color: var(--text-dim); cursor: pointer;
+    display: flex; align-items: center; gap: 11px; transition: all .15s;
+    justify-content: flex-start; width: 100%; padding: 13px 14px; border-radius: 11px;
+    white-space: nowrap; font-size: .82rem; font-weight: 600; font-family: inherit;
+  }
+  .tab-btn:hover { color: var(--text); background: var(--surface-3); }
+  .tab-btn.active { background: var(--accent-soft); color: var(--accent-bright); }
+  .tab-btn svg { flex-shrink: 0; width: 17px; height: 17px; }
+  .appwin.sidebar-collapsed .tab-btn { justify-content: center; padding: 14px; }
+  .appwin.sidebar-collapsed .tab-btn .sb-label, .appwin.sidebar-collapsed .tab-btn .sb-count { display: none; }
+  .sb-count { margin-left: auto; background: var(--accent); color: var(--on-accent); font-size: .66rem; font-weight: 800;
+    padding: 1px 7px; border-radius: 99px; line-height: 1.5; }
+  .sb-count:empty { display: none; }
+  .sb-bottom { padding: 12px 10px 16px; border-top: 1px solid var(--border); display: flex; flex-direction: column; gap: 8px; }
+  .sb-bottom .btn-icon { width: 100%; border-radius: 10px; }
+  .appwin.sidebar-collapsed .sb-bottom .btn-icon { width: 40px; margin: 0 auto; }
+
+  .app-main-col { flex: 1; min-width: 0; display: flex; flex-direction: column; min-height: 0; }
+  header.chrome {
+    position: relative; display: flex; align-items: center; justify-content: space-between;
+    gap: 14px; flex-wrap: wrap; padding: 13px 20px; flex-shrink: 0;
+    border-bottom: 1px solid var(--border); background: transparent; z-index: 5;
+  }
+  header.chrome::before {
+    content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px;
+    background: linear-gradient(90deg, var(--accent) 0%, var(--accent-bright) 16%, transparent 62%);
+  }
+  .chrome-title h1 { font-size: 1.05rem; font-weight: 700; line-height: 1.2; }
+  .chrome-title span { display: block; font-size: .64rem; color: var(--text-mute); font-weight: 500;
+    text-transform: uppercase; letter-spacing: 1.3px; margin-top: 3px; font-family: var(--font-cond); }
+  .header-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+
+  .btn {
+    background: var(--accent); color: var(--on-accent); border: none; cursor: pointer;
+    padding: 10px 18px; border-radius: var(--radius); font-weight: 700; font-size: .88rem;
+    transition: filter .15s;
+  }
+  .btn:hover { filter: brightness(1.1); }
+  .btn-ghost { background: transparent; border: 1px solid var(--border); color: var(--text-dim); font-weight: 600; }
+  .btn-ghost:hover { color: var(--text); border-color: var(--text-dim); filter: none; }
+  .btn-danger { background: transparent; border: 1px solid rgba(179,64,58,.45); color: var(--red-bright); font-weight: 600; }
+  .btn-danger:hover { background: var(--red-soft); filter: none; }
+  .btn-ok { background: var(--st-done); color: #fff; }
+  .btn-icon {
+    background: var(--surface-2); border: 1px solid var(--border); color: var(--text-dim);
+    width: 40px; height: 40px; border-radius: var(--radius); cursor: pointer;
+    display: inline-flex; align-items: center; justify-content: center; font-size: 1rem; transition: all .15s;
+  }
+  .btn-icon:hover { color: var(--accent); border-color: var(--accent); }
+  .mini {
+    background: none; border: 1px solid var(--border); color: var(--text-dim); cursor: pointer;
+    font-size: .7rem; font-weight: 700; padding: 5px 11px; border-radius: 7px; transition: all .15s;
+  }
+  .mini:hover { color: var(--accent); border-color: var(--accent); }
+  .mini.ok:hover { color: var(--st-done); border-color: var(--st-done); }
+  .mini.no:hover { color: var(--st-late); border-color: var(--st-late); }
+
+  .sync-chip {
+    display: inline-flex; align-items: center; gap: 8px;
+    background: var(--surface-2); border: 1px solid var(--border);
+    border-radius: 99px; padding: 8px 14px; font-size: .72rem; color: var(--text-dim);
+    cursor: pointer; transition: all .15s; white-space: nowrap;
+  }
+  .sync-chip:hover { border-color: var(--accent); color: var(--text); }
+  .sync-chip .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--green); flex-shrink: 0; box-shadow: 0 0 6px rgba(124,144,99,.6); }
+  .sync-chip.saving .dot { background: var(--accent); animation: pulse 1s infinite; }
+  @keyframes pulse { 50% { opacity: .3; } }
+
+  /* filtros no chrome */
+  .filtros-wrap { position: relative; }
+  .filtros-badge { position: absolute; top: -5px; right: -5px; background: var(--accent); color: var(--on-accent);
+    font-size: .6rem; min-width: 16px; height: 16px; border-radius: 99px; display: flex; align-items: center;
+    justify-content: center; padding: 0 4px; font-weight: 800; }
+  .filtros-panel { position: absolute; top: calc(100% + 8px); right: 0; z-index: 70; width: 260px;
+    max-width: calc(100vw - 20px); background: var(--surface); border: 1px solid var(--border);
+    border-radius: 12px; box-shadow: var(--shadow-md); padding: 14px; display: none; flex-direction: column; gap: 4px; }
+  .filtros-panel.open { display: flex; }
+  .filtros-panel label { font-size: .64rem; text-transform: uppercase; letter-spacing: .6px; color: var(--text-dim); font-weight: 700; margin-top: 6px; }
+  .filtros-panel select { width: 100%; background: var(--surface-2); border: 1px solid var(--border);
+    color: var(--text); padding: 8px 10px; border-radius: 8px; font-size: .84rem; outline: none; }
+
+  main#main { flex: 1; min-height: 0; overflow-y: auto; padding: 22px 26px 90px; position: relative; z-index: 1; }
+  @media (max-width: 640px) { main#main { padding: 18px 14px 90px; } }
+
+  /* ════════ Blocos de conteúdo ════════ */
+  .greet h1 { font-size: 1.65rem; font-weight: 700; letter-spacing: -.4px; }
+  .greet .sentence { font-family: var(--font-body); font-size: .95rem; color: var(--text-dim); margin-top: 8px; line-height: 1.6; }
+  .greet .sentence b { font-weight: 700; color: var(--text); }
+  .g-brass { color: var(--accent-bright); } .g-green { color: var(--green-bright); }
+  .g-red { color: var(--red-bright); } .g-blue { color: var(--blue); }
+
+  .cmd { display: flex; align-items: center; gap: 18px; margin-top: 20px; padding: 18px 22px; cursor: pointer;
+    border-radius: 16px; border: 1px solid var(--border-light);
+    background: linear-gradient(120deg, var(--accent-soft), transparent); transition: border-color .15s, transform .15s; }
+  .cmd:hover { border-color: var(--accent); transform: translateY(-1px); }
+  .cmd .big { font-family: var(--font-display); font-size: 2.4rem; font-weight: 800; color: var(--accent-bright); letter-spacing: -1.5px; line-height: 1; }
+  .cmd .ctxt { flex: 1; } .cmd .ctxt .t { font-size: .96rem; font-weight: 700; } .cmd .ctxt .s { font-size: .76rem; color: var(--text-dim); margin-top: 3px; }
+  .cmd .go { color: var(--accent); font-size: 1.4rem; }
+
+  .section-label { font-size: .66rem; text-transform: uppercase; letter-spacing: 1.5px;
+    color: var(--text-mute); font-weight: 700; margin: 24px 2px 12px; display: block; font-family: var(--font-cond); }
+
+  .m-cards { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; }
+  .m-cards-3 { grid-template-columns: repeat(3, 1fr); }
+  .m-cards-2 { grid-template-columns: repeat(2, 1fr); }
+  @media (max-width: 900px) { .m-cards, .m-cards-3 { grid-template-columns: repeat(2, 1fr); } }
+  @media (max-width: 560px) { .m-cards, .m-cards-3, .m-cards-2 { grid-template-columns: 1fr; } }
+  .m3d { position: relative; padding: 18px; border-radius: 15px;
+    background: linear-gradient(158deg, rgba(255,255,255,.06), rgba(255,255,255,.018));
+    border: 1px solid var(--border); border-top-color: var(--border-light);
+    box-shadow: 0 16px 26px -14px rgba(0,0,0,.6), inset 0 1px 0 rgba(255,255,255,.05);
+    transition: transform .25s ease, box-shadow .25s ease; }
+  body.light .m3d { background: var(--surface); box-shadow: var(--shadow-sm); }
+  .m3d:hover { transform: perspective(900px) translateY(-4px) rotateX(5deg); box-shadow: 0 26px 40px -16px rgba(0,0,0,.7); }
+  .m3d .ico { position: absolute; top: 15px; right: 15px; color: var(--accent); opacity: .8; }
+  .m3d .ico svg { width: 24px; height: 24px; stroke-width: 1.8; fill: none; stroke-linecap: round; stroke-linejoin: round; }
+  .m3d .num { font-family: var(--font-display); font-size: 2rem; font-weight: 800; line-height: 1.1; letter-spacing: -1px; }
+  .m3d .num.sm { font-size: 1.5rem; }
+  .m3d .lbl { font-size: .74rem; color: var(--text-dim); margin-top: 7px; font-weight: 500; }
+  .m3d .hint { font-size: .64rem; color: var(--text-mute); margin-top: 2px; }
+
+  .p-block { padding: 16px 18px 18px; background: rgba(255,255,255,.022);
+    border: 1px solid var(--border); border-radius: 16px; min-width: 0; }
+  body.light .p-block { background: var(--surface); }
+  .p-block .pb-label { font-size: .66rem; text-transform: uppercase; letter-spacing: 1.4px; font-family: var(--font-cond);
+    color: var(--text-mute); font-weight: 700; margin-bottom: 12px; display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .p-row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 16px; }
+  @media (max-width: 900px) { .p-row2 { grid-template-columns: 1fr; } }
+
+  .li { display: flex; align-items: center; gap: 12px; padding: 11px 2px; border-bottom: 1px solid var(--border); }
+  .li:last-child { border-bottom: none; }
+  .li.clickable { cursor: pointer; } .li.clickable:hover { background: var(--accent-soft); border-radius: 8px; }
+  .li .lbar { width: 3px; height: 36px; border-radius: 3px; flex-shrink: 0; background: var(--accent); }
+  .li .lbody { flex: 1; min-width: 0; }
+  .li .lt { font-size: .85rem; font-weight: 600; display: flex; align-items: center; gap: 7px; flex-wrap: wrap; }
+  .li .lm { font-size: .7rem; color: var(--text-mute); margin-top: 2px; }
+  .li .lend { font-size: .8rem; font-weight: 700; white-space: nowrap; }
+  .li .ava, .avatar { width: 30px; height: 30px; border-radius: 50%; background: var(--surface-3); flex-shrink: 0;
+    display: inline-flex; align-items: center; justify-content: center; font-size: .66rem; font-weight: 800;
+    color: var(--accent-bright); border: 1px solid var(--border-light); }
+  .li .ava svg { width: 15px; height: 15px; }
+  .empty-soft { color: var(--text-mute); font-size: .82rem; padding: 16px 2px; text-align: center; }
+
+  .st-row { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
+  .st-row:last-child { margin-bottom: 0; }
+  .st-name { width: 130px; font-size: .74rem; color: var(--text-dim); flex-shrink: 0; text-align: right;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .st-track { flex: 1; height: 9px; background: rgba(128,128,128,.18); border-radius: 99px; overflow: hidden; }
+  .st-fill { height: 100%; border-radius: 99px; background: var(--accent); transition: width .6s ease; }
+  .st-val { min-width: 34px; font-size: .78rem; font-weight: 700; text-align: right; color: var(--text-dim); }
+
+  .goal { margin-top: 18px; padding: 16px 20px; border-radius: 14px; border: 1px solid var(--border); background: rgba(128,128,128,.05); }
+  .goal .gh { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; margin-bottom: 10px; flex-wrap: wrap; }
+  .goal .gh .gt { font-size: .8rem; font-weight: 700; }
+  .goal .gh .gv { font-size: .78rem; color: var(--text-dim); }
+  .goal .gtrack { height: 11px; background: rgba(128,128,128,.2); border-radius: 99px; overflow: hidden; }
+  .goal .gfill { height: 100%; border-radius: 99px; background: linear-gradient(90deg, var(--accent), var(--accent-bright)); transition: width .6s ease; }
+
+  .tag { font-size: .63rem; padding: 3px 9px; border-radius: 99px; font-weight: 700; letter-spacing: .2px;
+    display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
+  .tag.st-agendado { background: var(--st-wait-soft); color: var(--st-wait); }
+  .tag.st-confirmado { background: var(--blue-soft); color: var(--blue); }
+  .tag.st-concluido { background: var(--st-done-soft); color: var(--st-done); }
+  .tag.st-cancelado { background: var(--st-pend-soft); color: var(--st-pend); }
+  .tag.st-faltou { background: var(--st-late-soft); color: var(--st-late); }
+  .tag.brass { background: var(--accent-soft); color: var(--accent-bright); }
+  .tag.neutro { background: var(--surface-3); color: var(--text-dim); }
+  .tag.pos { background: var(--green-soft); color: var(--green-bright); }
+  .tag.neg { background: var(--red-soft); color: var(--red-bright); }
+  body.light .m3d:hover { box-shadow: var(--shadow-md); }
+
+  /* segmentos / abas */
+  .dataview-bar { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; flex-wrap: wrap; }
+  .view-seg { display: inline-flex; background: var(--surface-2); border: 1px solid var(--border); border-radius: 10px; padding: 3px; }
+  .view-seg button { background: none; border: none; color: var(--text-dim); padding: 8px 16px; border-radius: 8px;
+    font-size: .81rem; cursor: pointer; font-family: inherit; font-weight: 600; white-space: nowrap; }
+  .view-seg button:hover { color: var(--text); }
+  .view-seg button.active { background: var(--accent); color: var(--on-accent); }
+  .modal-tabs { display: flex; gap: 2px; margin-bottom: 16px; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+  .mtab { background: none; border: none; border-bottom: 2px solid transparent; color: var(--text-dim);
+    padding: 9px 16px; font-size: .85rem; font-weight: 600; cursor: pointer; font-family: inherit; margin-bottom: -1px; }
+  .mtab:hover { color: var(--text); }
+  .mtab.active { color: var(--accent-bright); border-bottom-color: var(--accent); }
+
+  /* tabelas */
+  .tbl-wrap { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 16px 18px; }
+  body:not(.light) .tbl-wrap { background: rgba(255,255,255,.022); }
+  .tbl-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; flex-wrap: wrap; gap: 10px; }
+  .tbl-title { font-size: .92rem; font-weight: 700; }
+  .tbl-scroll { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; }
+  th { text-align: left; font-size: .66rem; text-transform: uppercase; letter-spacing: .8px; font-family: var(--font-cond);
+    color: var(--text-dim); padding: 10px 12px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+  td { padding: 11px 12px; font-size: .81rem; border-bottom: 1px solid var(--border); }
+  tbody tr { cursor: pointer; transition: background .15s; }
+  tbody tr:hover { background: var(--surface-2); }
+  tbody tr:last-child td { border-bottom: none; }
+  .srch { background: var(--surface-2); border: 1px solid var(--border); color: var(--text);
+    padding: 9px 12px; border-radius: var(--radius); font-size: .85rem; outline: none; min-width: 240px; }
+  .srch:focus { border-color: var(--accent); }
+
+  /* ════════ Agenda / calendário semanal ════════ */
+  .cal-wrap { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 16px; }
+  body:not(.light) .cal-wrap { background: rgba(255,255,255,.022); }
+  .cal-nav { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; flex-wrap: wrap; }
+  .cal-nav-btn { background: var(--surface-2); border: 1px solid var(--border); color: var(--text-dim);
+    width: 32px; height: 32px; border-radius: 8px; cursor: pointer; font-size: 1rem;
+    display: flex; align-items: center; justify-content: center; transition: all .15s; }
+  .cal-nav-btn:hover { color: var(--accent); border-color: var(--accent); }
+  .cal-title { font-size: .95rem; font-weight: 700; text-transform: capitalize; }
+  .cal-scroll { overflow-x: auto; }
+  .cal-tbl { display: grid; grid-template-columns: 58px repeat(7, minmax(112px, 1fr)); min-width: 800px; }
+  .cal-dow { text-align: center; padding: 8px 4px; border-bottom: 1px solid var(--border); }
+  .cal-dow .d1 { font-size: .62rem; text-transform: uppercase; letter-spacing: 1px; color: var(--text-mute); font-family: var(--font-cond); font-weight: 700; }
+  .cal-dow .d2 { font-size: .95rem; font-weight: 700; margin-top: 2px; }
+  .cal-dow.today .d2 { color: var(--accent-bright); }
+  .cal-dow.today { background: var(--accent-soft); border-radius: 8px 8px 0 0; }
+  .cal-corner { border-bottom: 1px solid var(--border); }
+  .cal-hour { font-size: .64rem; color: var(--text-mute); text-align: right; padding: 4px 8px 0 0;
+    border-right: 1px solid var(--border); font-family: var(--font-cond); font-weight: 600; }
+  .cal-slot { border-bottom: 1px dashed var(--border); border-right: 1px solid var(--border);
+    min-height: 52px; padding: 3px; display: flex; flex-direction: column; gap: 3px; cursor: pointer; transition: background .12s; }
+  .cal-slot:hover { background: var(--accent-soft); }
+  .cal-slot.today-col { background: var(--accent-soft); }
+  .cal-appt { font-size: .63rem; font-weight: 600; padding: 4px 6px; border-radius: 5px; cursor: pointer;
+    background: var(--surface-2); border-left: 3px solid var(--accent); line-height: 1.25;
+    overflow: hidden; transition: filter .15s; }
+  body.light .cal-appt { background: var(--surface-3); }
+  .cal-appt:hover { filter: brightness(1.2); }
+  .cal-appt .ca-h { color: var(--text-dim); font-size: .58rem; font-weight: 700; }
+  .cal-appt .ca-n { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .cal-appt.done { opacity: .55; }
+  .cal-appt.cancel { opacity: .4; text-decoration: line-through; }
+  .cal-legend { display: flex; gap: 16px; margin-top: 14px; flex-wrap: wrap; }
+  .cal-legend-item { display: flex; align-items: center; gap: 7px; font-size: .72rem; color: var(--text-dim); }
+  .cal-legend-dot { width: 10px; height: 10px; border-radius: 3px; }
+
+  /* tira de dias da view "Dia" — o padrão no celular */
+  .dia-strip { display: flex; gap: 6px; margin: 14px 0 2px; overflow-x: auto; padding-bottom: 2px; }
+  .dia-chip {
+    flex: 1; min-width: 40px; display: flex; flex-direction: column; align-items: center; gap: 2px;
+    background: var(--surface-2); border: 1px solid var(--border); border-radius: 10px;
+    padding: 8px 4px 9px; cursor: pointer; font-family: inherit; position: relative; transition: all .15s;
+  }
+  .dia-chip .dc-d { font-size: .58rem; text-transform: uppercase; color: var(--text-mute); font-weight: 700; letter-spacing: .3px; }
+  .dia-chip .dc-n { font-size: .92rem; font-weight: 700; color: var(--text); }
+  .dia-chip.today { border-color: var(--accent); }
+  .dia-chip.active { background: var(--accent); border-color: var(--accent); }
+  .dia-chip.active .dc-d, .dia-chip.active .dc-n { color: var(--on-accent); }
+  .dia-chip .dc-dot { position: absolute; bottom: 4px; width: 4px; height: 4px; border-radius: 50%; background: var(--accent); }
+  .dia-chip.active .dc-dot { background: var(--on-accent); }
+
+  /* ════════ Overlays: drawer lateral + modal central ════════ */
+  .overlay { position: fixed; inset: 0; background: rgba(0,0,0,.62); backdrop-filter: blur(2px); z-index: 100;
+    opacity: 0; visibility: hidden; transition: opacity .25s ease, visibility .25s ease; }
+  .overlay.open { opacity: 1; visibility: visible; }
+  .overlay.drawer .panel {
+    position: fixed; top: 0; right: 0; height: 100vh; height: 100dvh; width: 480px; max-width: 100%;
+    background: var(--surface); border-left: 1px solid var(--border);
+    box-shadow: -8px 0 32px rgba(0,0,0,.35); display: flex; flex-direction: column;
+    transform: translateX(100%); transition: transform .3s cubic-bezier(.22,1,.36,1);
+  }
+  .overlay.drawer.open .panel { transform: translateX(0); }
+  .overlay.center { display: flex; align-items: flex-start; justify-content: center; padding: 50px 16px; overflow-y: auto; }
+  .overlay.center .panel { background: var(--surface); border: 1px solid var(--border); border-radius: 14px;
+    width: 100%; max-width: 560px; max-height: calc(100vh - 100px); display: flex; flex-direction: column;
+    transform: translateY(-10px); transition: transform .25s ease; }
+  .overlay.center.open .panel { transform: translateY(0); }
+  .dw-head { display: flex; align-items: center; justify-content: space-between; gap: 10px;
+    padding: 18px 22px 14px; border-bottom: 1px solid var(--border); flex-shrink: 0; }
+  .dw-title { font-size: 1.02rem; font-weight: 700; }
+  .dw-x { background: none; border: none; color: var(--text-dim); font-size: 1.2rem; cursor: pointer;
+    line-height: 1; padding: 4px 9px; border-radius: 8px; }
+  .dw-x:hover { color: var(--accent); background: var(--surface-2); }
+  .dw-body { flex: 1; min-height: 0; overflow-y: auto; padding: 20px 22px; }
+  .dw-foot { display: flex; gap: 10px; flex-wrap: wrap; padding: 14px 22px 18px; border-top: 1px solid var(--border); flex-shrink: 0; }
+  .dw-foot .btn { flex: 1; min-width: 110px; }
+  .dw-foot .spacer { flex: 1 1 100%; height: 0; }
+
+  .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  .form-grid .full { grid-column: 1 / -1; }
+  @media (max-width: 520px) { .form-grid { grid-template-columns: 1fr; } }
+  label { display: block; font-size: .68rem; color: var(--text-dim); margin-bottom: 5px;
+    text-transform: uppercase; letter-spacing: .6px; font-weight: 700; font-family: var(--font-cond); }
+  .dw-body input, .dw-body select, .dw-body textarea {
+    width: 100%; background: var(--surface-2); border: 1px solid var(--border); color: var(--text);
+    padding: 10px 12px; border-radius: var(--radius); font-size: .87rem; outline: none; font-family: inherit;
+  }
+  .dw-body input:focus, .dw-body select:focus, .dw-body textarea:focus { border-color: var(--accent); }
+  textarea { resize: vertical; min-height: 70px; }
+  .det-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; margin-bottom: 18px; }
+  .det-item { background: var(--surface-2); border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; }
+  .det-item .k { font-size: .6rem; text-transform: uppercase; letter-spacing: .7px; color: var(--text-mute); font-family: var(--font-cond); font-weight: 700; }
+  .det-item .v { font-size: .88rem; font-weight: 700; margin-top: 3px; }
+  .det-sep { height: 1px; background: var(--border); margin: 18px 0; }
+  .wa-btn { display: inline-flex; align-items: center; gap: 7px; background: var(--green-soft); color: var(--green-bright);
+    border: 1px solid rgba(124,144,99,.4); padding: 8px 14px; border-radius: 99px; font-size: .78rem;
+    font-weight: 700; text-decoration: none; cursor: pointer; }
+  .wa-btn:hover { filter: brightness(1.15); }
+
+  /* FAB + toast */
+  .fab-stack { position: fixed; right: 26px; bottom: 26px; display: flex; gap: 14px; z-index: 90; transition: transform .28s ease; }
+  .fab-stack.drawer-open { transform: translateX(calc(-480px - 20px)); }
+  @media (max-width: 560px) { .fab-stack.drawer-open { display: none; } }
+  .fab-btn { width: 54px; height: 54px; border-radius: 50%; border: none; cursor: pointer;
+    display: flex; align-items: center; justify-content: center; color: var(--on-accent);
+    background: var(--accent);
+    box-shadow: var(--shadow-md), 0 2px 6px rgba(16,24,40,.18);
+    transition: transform .15s ease, box-shadow .15s ease, background .15s ease; }
+  .fab-btn:hover { background: var(--accent-bright); }
+  .fab-btn:hover { transform: translateY(-2px); }
+  .fab-btn:active { transform: translateY(0); }
+  .toast { position: fixed; bottom: 28px; left: 28px; z-index: 200; max-width: 340px;
+    background: var(--surface); border: 1px solid var(--accent); border-radius: var(--radius); padding: 13px 18px;
+    display: flex; align-items: center; gap: 12px; box-shadow: var(--shadow-lg);
+    transform: translateY(160%); transition: transform .35s ease; }
+  .toast.show { transform: translateY(0); }
+  .toast .ico { font-size: 1.4rem; }
+  .toast .tx { font-size: .84rem; line-height: 1.4; }
+
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--surface-3); border-radius: 99px; border: 3px solid transparent; background-clip: content-box; }
+  ::-webkit-scrollbar-thumb:hover { background: var(--border-light); background-clip: content-box; }
+
+  /* ════════ Login ════════ */
+  body.locked .appwin, body.locked .bottom-nav, body.locked .fab-stack, body.locked .toast { display: none !important; }
+  .login-overlay {
+    position: fixed; inset: 0; z-index: 300; background: var(--bg);
+    display: none; align-items: center; justify-content: center; padding: 24px;
+  }
+  body.locked .login-overlay { display: flex; }
+  .login-card {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 18px;
+    padding: 36px 28px; width: 100%; max-width: 380px; box-shadow: var(--shadow-lg);
+  }
+  .login-card .lc-logo {
+    width: 52px; height: 52px; border-radius: 50%; background: var(--accent); color: var(--on-accent);
+    display: flex; align-items: center; justify-content: center; font-weight: 800;
+    font-family: var(--font-display); font-size: 1.1rem; margin: 0 auto 16px;
+  }
+  .login-card h1 { font-size: 1.15rem; font-weight: 700; text-align: center; }
+  .login-card .sub { font-size: .8rem; color: var(--text-dim); text-align: center; margin: 4px 0 24px; }
+  .login-card input {
+    width: 100%; background: var(--surface-2); border: 1px solid var(--border); color: var(--text);
+    padding: 12px 13px; border-radius: var(--radius); font-size: .92rem; outline: none;
+    margin-bottom: 14px; font-family: inherit;
+  }
+  .login-card input:focus { border-color: var(--accent); }
+  .login-card .btn { width: 100%; padding: 13px; margin-top: 4px; font-size: .92rem; }
+  .login-card .btn:disabled { opacity: .6; cursor: default; }
+  .login-msg { font-size: .8rem; margin-top: 14px; text-align: center; min-height: 18px; }
+  .login-msg.err { color: var(--red); }
+
+  /* ════════ Celular é o dispositivo principal (o Tavares não tem computador):
+     abaixo de 900px a sidebar vira barra inferior fixa, padrão nativo de app de celular.
+     Fica por último no <style> de propósito: precisa vencer as regras base por ordem de cascata. ════════ */
+  @media (max-width: 899px) {
+    .app-sidebar { display: none; }
+    .appwin { flex-direction: column; height: 100dvh; }
+    main#main { padding-bottom: 86px; }
+    .bottom-nav {
+      display: flex; position: fixed; left: 0; right: 0; bottom: 0; z-index: 95;
+      background: var(--surface); border-top: 1px solid var(--border);
+      padding: 5px 2px calc(5px + env(safe-area-inset-bottom));
+      box-shadow: 0 -6px 20px rgba(16,24,40,.08);
+    }
+    .bottom-nav button {
+      flex: 1; display: flex; flex-direction: column; align-items: center; gap: 3px;
+      background: none; border: none; color: var(--text-dim); cursor: pointer;
+      font-size: .6rem; font-weight: 600; font-family: inherit;
+      padding: 7px 2px 5px; border-radius: 10px; min-width: 0;
+    }
+    .bottom-nav button svg { width: 20px; height: 20px; flex-shrink: 0; }
+    .bottom-nav button span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+    .bottom-nav button.active { color: var(--accent); }
+    .fab-stack { bottom: 82px; right: 18px; }
+    .toast { bottom: 78px; left: 14px; right: 14px; max-width: none; }
+    [data-mobile-hide] { display: none !important; }
+    header.chrome { padding: 12px 14px; gap: 10px; }
+    .chrome-title h1 { font-size: .96rem; }
+  }
+  /* toques maiores em telas pequenas: alvo mínimo ~40px pros botões de ação do dia a dia */
+  @media (max-width: 480px) {
+    .dw-foot { flex-direction: column; }
+    .dw-foot .btn { width: 100%; min-width: 0; }
+    .det-grid { grid-template-columns: 1fr; }
+    .mini { padding: 8px 13px; font-size: .74rem; }
+  }
+</style>
+</head>
+<body class="locked">
+
+<div class="login-overlay" id="loginOverlay">
+  <div class="login-card">
+    <div class="lc-logo" id="loginLogo">DT</div>
+    <h1 id="loginNomeApp">Dom Tavares</h1>
+    <div class="sub">Entre para acessar sua barbearia</div>
+    <form id="loginForm" onsubmit="return fazerLogin(event)">
+      <label>Usuário</label>
+      <input type="text" id="loginUsuario" autocomplete="username" placeholder="joao.campos" required>
+      <label>Senha</label>
+      <input type="password" id="loginSenha" autocomplete="current-password" required>
+      <button class="btn" type="submit" id="loginBtn">Entrar</button>
+      <div class="login-msg" id="loginMsg"></div>
+    </form>
+  </div>
+</div>
+
+<div class="appwin" id="appwin">
+  <aside class="app-sidebar">
+    <div class="sb-top">
+      <button class="sb-burger" onclick="toggleSidebar()" title="Expandir/retrair menu">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+      </button>
+      <div class="sb-logo" id="sbLogo">DT</div>
+      <div class="sb-brand"><div class="b1" id="sbNome">Dom Tavares</div><div class="b2">Barbearia</div></div>
+    </div>
+    <nav class="sb-nav" id="nav"></nav>
+    <div class="sb-bottom">
+      <button class="btn-icon" onclick="openConfig()" title="Configurações">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+      </button>
+    </div>
+  </aside>
+
+  <div class="app-main-col">
+    <header class="chrome">
+      <div class="chrome-title">
+        <h1 id="chromeTitle">Visão Geral</h1>
+        <span id="chromeSub">Painel da barbearia</span>
+      </div>
+      <div class="header-actions">
+        <div class="sync-chip" id="syncChip" onclick="render()" title="Dados locais — clique para atualizar a tela">
+          <span class="dot"></span><span id="syncLabel">Local</span>
+        </div>
+        <div class="filtros-wrap" id="filtrosWrap" style="display:none">
+          <button class="btn-icon" onclick="toggleFiltros(event)" title="Filtros">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 3H2l8 9.46V19l4 2v-8.54L22 3z"/></svg>
+            <span class="filtros-badge" id="filtrosBadge" style="display:none">1</span>
+          </button>
+          <div class="filtros-panel" id="filtrosPanel"></div>
+        </div>
+        <button class="btn-icon" id="themeBtn" onclick="toggleTheme()" title="Alternar tema"></button>
+        <button class="btn-icon" data-mobile-hide onclick="toggleFullscreen()" title="Tela cheia">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v3M21 8V5a2 2 0 0 0-2-2h-3M3 16v3a2 2 0 0 0 2 2h3M16 21h3a2 2 0 0 0 2-2v-3"/></svg>
+        </button>
+        <button class="btn" data-mobile-hide onclick="openApptForm()">Agendar</button>
+      </div>
+    </header>
+    <main id="main"></main>
+  </div>
+</div>
+
+<nav class="bottom-nav" id="bottomNav"></nav>
+
+<div class="fab-stack" id="fabStack">
+  <button class="fab-btn" onclick="openApptForm()" title="Novo agendamento">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+  </button>
+</div>
+
+<div class="overlay drawer" id="drawer">
+  <div class="panel">
+    <div class="dw-head">
+      <div class="dw-title"></div>
+      <button class="dw-x" onclick="closeDrawer()">✕</button>
+    </div>
+    <div class="dw-body"></div>
+    <div class="dw-foot"></div>
+  </div>
+</div>
+
+<div class="overlay center" id="cmodal">
+  <div class="panel">
+    <div class="dw-head">
+      <div class="dw-title"></div>
+      <button class="dw-x" onclick="closeCModal()">✕</button>
+    </div>
+    <div class="dw-body"></div>
+    <div class="dw-foot"></div>
+  </div>
+</div>
+
+<div class="toast" id="toast"><span class="ico">✂️</span><span class="tx"></span></div>
+
+<script>
+/* ══════════════════════════════════════════════════════════════
+   Dom Tavares — ERP de Barbearia (single-file)
+   Persistência: localStorage com fallback em memória.
+   Shape de dados pensado para migrar direto para o Supabase.
+   ══════════════════════════════════════════════════════════════ */
+
+/* ─────────── Supabase (conexão) ───────────
+   A anon key abaixo é pública por natureza: só funciona se o RLS deixar,
+   e o schema.sql trava tudo pra role "authenticated". Sem login ainda,
+   então por enquanto o app só verifica se dá pra alcançar o Supabase —
+   os dados continuam indo pro Store (localStorage) até o login existir. */
+const SUPABASE_URL = 'https://ttqflxpsqmkzfrjvjtvp.supabase.co';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InR0cWZseHBzcW1remZyanZqdHZwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODYxNDQyOTUsImV4cCI6MjEwMTcyMDI5NX0.jBNfursbYMc8U6DVQ7Aw93McEM7CwMuWJFTGuDxCk14';
+const sb = window.supabase ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY) : null;
+let sbStatus = 'checando';   // 'checando' | 'online' | 'offline'
+async function checarSupabase() {
+  if (!sb) { sbStatus = 'offline'; updateSyncChip(); return; }
+  try {
+    await sb.from('configuracoes').select('id', { head: true, count: 'exact' });
+    sbStatus = 'online';
+  } catch (e) {
+    sbStatus = 'offline';
+  }
+  updateSyncChip();
+}
+
+/* ─────────── Persistência (Store resiliente) ─────────── */
+const Store = (() => {
+  let ok = true, mem = {};
+  try { localStorage.setItem('__t', '1'); localStorage.removeItem('__t'); } catch (e) { ok = false; }
+  return {
+    ok,
+    get(k) { try { return ok ? localStorage.getItem(k) : (k in mem ? mem[k] : null); } catch (e) { return k in mem ? mem[k] : null; } },
+    set(k, v) { try { ok ? localStorage.setItem(k, v) : (mem[k] = v); } catch (e) { mem[k] = v; } },
+    del(k) { try { ok ? localStorage.removeItem(k) : delete mem[k]; } catch (e) { delete mem[k]; } }
+  };
+})();
+const DB_KEY = 'domtavares_db';
+const CONFIG_PADRAO = {
+  nomeUsuario: 'Tavares',          // como o app se dirige ao dono
+  nomeBarbearia: 'Dom Tavares',
+  abertura: '09:00', fechamento: '20:00',
+  inativoDias: 45, pontosPorCorte: 1, pontosResgate: 10
+};
+
+/* ─────────── Helpers ─────────── */
+const uid = () => Math.random().toString(36).slice(2, 9);
+const money = v => 'R$ ' + (Number(v) || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const moneyShort = v => 'R$ ' + (Number(v) || 0).toLocaleString('pt-BR', { maximumFractionDigits: 0 });
+const esc = s => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+const pad2 = n => String(n).padStart(2, '0');
+/* datas SEMPRE em ISO local — nunca toISOString() (bug de fuso) */
+const isoOf = d => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+const todayISO = () => isoOf(new Date());
+const parseISO = s => { const [y, m, d] = String(s).split('-').map(Number); return new Date(y, m - 1, d); };
+const addDays = (d, n) => { const x = new Date(d); x.setDate(x.getDate() + n); return x; };
+const monthKey = iso => String(iso || '').slice(0, 7);
+const curMonthKey = () => monthKey(todayISO());
+const hhmmToMin = h => { const [a, b] = String(h).split(':').map(Number); return a * 60 + (b || 0); };
+const minToHHMM = m => `${pad2(Math.floor(m / 60))}:${pad2(m % 60)}`;
+const DOW = ['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sáb'];
+const MES = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
+const MES_LONGO = ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'];
+const fmtDate = iso => { if (!iso) return '—'; const d = parseISO(iso); return `${pad2(d.getDate())}/${pad2(d.getMonth() + 1)}`; };
+const fmtDateLong = iso => { if (!iso) return '—'; const d = parseISO(iso); return `${DOW[d.getDay()]}, ${pad2(d.getDate())} ${MES[d.getMonth()]}`; };
+const fmtMonth = mk => { const [y, m] = mk.split('-'); return `${MES_LONGO[Number(m) - 1]}/${y}`; };
+const initials = n => String(n || '').trim().split(/\s+/).slice(0, 2).map(p => p[0] || '').join('').toUpperCase();
+const firstName = n => String(n || '').trim().split(/\s+/)[0] || '';
+const pct = (a, b) => b > 0 ? Math.round(a / b * 100) : 0;
+const somaBy = (arr, f) => arr.reduce((a, x) => a + (Number(f(x)) || 0), 0);
+const onlyDigits = s => String(s || '').replace(/\D/g, '');
+function waLink(tel, msg) {
+  const d = onlyDigits(tel);
+  const full = d.length <= 11 ? '55' + d : d;
+  return `https://wa.me/${full}?text=${encodeURIComponent(msg || '')}`;
+}
+function waBtn(tel, msg, label) {
+  if (!onlyDigits(tel)) return '';
+  return `<a class="wa-btn" href="${waLink(tel, msg)}" target="_blank" rel="noopener">
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M17.5 14.4c-.3-.15-1.75-.86-2.02-.96-.27-.1-.47-.15-.67.15-.2.3-.77.96-.95 1.16-.17.2-.35.22-.65.07-.3-.15-1.25-.46-2.39-1.47-.88-.79-1.48-1.76-1.65-2.06-.17-.3-.02-.46.13-.61.13-.13.3-.35.45-.52.15-.17.2-.3.3-.5.1-.2.05-.37-.02-.52-.08-.15-.67-1.6-.92-2.2-.24-.58-.49-.5-.67-.51h-.57c-.2 0-.52.07-.79.37-.27.3-1.04 1.01-1.04 2.470 0 1.45 1.07 2.86 1.22 3.06.15.2 2.1 3.2 5.08 4.49.71.3 1.26.49 1.69.63.71.22 1.36.19 1.87.12.57-.09 1.75-.71 2-1.4.25-.69.25-1.28.17-1.4-.07-.13-.27-.2-.57-.35zM12 2C6.48 2 2 6.48 2 12c0 1.77.46 3.43 1.27 4.87L2 22l5.25-1.24A9.94 9.94 0 0 0 12 22c5.52 0 10-4.48 10-10S17.52 2 12 2z"/></svg>
+    ${esc(label || 'WhatsApp')}</a>`;
+}
+let toastT = null;
+function toast(msg, ico) {
+  const el = document.getElementById('toast');
+  el.querySelector('.ico').textContent = ico || '✂️';
+  el.querySelector('.tx').innerHTML = msg;
+  el.classList.add('show');
+  clearTimeout(toastT);
+  toastT = setTimeout(() => el.classList.remove('show'), 4200);
+}
+
+/* ─────────── Estado ─────────── */
+let db = null;
+const getCli = id => db.clientes.find(c => c.id === id);
+const getProf = id => db.profissionais.find(p => p.id === id);
+const getSrv = id => db.servicos.find(s => s.id === id);
+const nomeCli = id => (getCli(id) || {}).nome || 'Cliente removido';
+const nomeProf = id => (getProf(id) || {}).apelido || (getProf(id) || {}).nome || '—';
+const corProf = id => (getProf(id) || {}).cor || 'var(--accent)';
+const nomeSrv = id => (getSrv(id) || {}).nome || 'Serviço removido';
+const precoSrv = id => (getSrv(id) || {}).preco || 0;
+
+const ST_LABEL = { agendado: 'Agendado', confirmado: 'Confirmado', concluido: 'Concluído', cancelado: 'Cancelado', faltou: 'Faltou' };
+const PAG_LABEL = { pix: 'PIX', dinheiro: 'Dinheiro', cartao: 'Cartão', pacote: 'Pacote', boleto: 'Boleto' };
+const stTag = st => `<span class="tag st-${st}">${ST_LABEL[st] || st}</span>`;
+
+/* Dados iniciais reais da barbearia. Nada de exemplo/fictício aqui:
+   é com isso que o app abre no primeiro acesso e é para onde o "Apagar tudo" volta.
+   O resto do catálogo e dos clientes o Tavares cadastra pelo app. */
+function dadosIniciais() {
+  return {
+    profissionais: [
+      { id: uid(), nome: 'Tavares', apelido: 'Tavares', comissao: 0, cor: CORES[0], ativo: true, tel: '' }
+    ],
+    servicos: [
+      { id: uid(), nome: 'Cabelo e barba', tipo: 'servico', preco: 90, duracao: 60, ativo: true },
+      { id: uid(), nome: 'Barba', tipo: 'servico', preco: 40, duracao: 30, ativo: true }
+    ],
+    clientes: [
+      { id: uid(), nome: 'João Campos', tel: '81999493004', email: '', nasc: '1997-12-16', pontos: 0, obs: '', cadastro: todayISO() }
+    ],
+    agendamentos: [], financeiro: [], metas: [], msgLog: [],
+    config: Object.assign({}, CONFIG_PADRAO),
+    _upd: Date.now()
+  };
+}
+
+function loadDB() {
+  const raw = Store.get(DB_KEY);
+  if (raw) {
+    try {
+      const parsed = JSON.parse(raw);
+      if (parsed && parsed.profissionais) { db = parsed; normalizeDB(); return; }
+    } catch (e) { /* cai nos dados iniciais */ }
+  }
+  db = dadosIniciais();
+  saveDB();
+}
+function normalizeDB() {
+  const base = { profissionais: [], servicos: [], clientes: [], agendamentos: [], financeiro: [], metas: [], msgLog: [] };
+  Object.keys(base).forEach(k => { if (!Array.isArray(db[k])) db[k] = base[k]; });
+  db.config = Object.assign({}, CONFIG_PADRAO, db.config || {});
+}
+/* app "em branco" = sem catálogo cadastrado (o dono ainda não montou a barbearia dele) */
+const appVazio = () => db.servicos.length === 0;
+function saveDB() {
+  db._upd = Date.now();
+  Store.set(DB_KEY, JSON.stringify(db));
+  const chip = document.getElementById('syncChip');
+  chip.classList.add('saving');
+  setTimeout(() => chip.classList.remove('saving'), 450);
+  updateSyncChip();
+}
+function updateSyncChip() {
+  const d = new Date(db._upd || Date.now());
+  const local = (Store.ok ? 'Salvo ' : 'Memória ') + `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+  const nuvem = sbStatus === 'online' ? ' · nuvem ok' : sbStatus === 'offline' ? ' · sem nuvem' : ' · checando…';
+  document.getElementById('syncLabel').textContent = local + nuvem;
+}
+
+/* ─────────── Navegação ─────────── */
+const ICO = {
+  painel: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M9 22V12h6v10"/></svg>',
+  agenda: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>',
+  clientes: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/></svg>',
+  servicos: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><line x1="20" y1="4" x2="8.12" y2="15.88"/><line x1="14.47" y1="14.48" x2="20" y2="20"/><line x1="8.12" y1="8.12" x2="12" y2="12"/></svg>',
+  profissionais: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>',
+  financeiro: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>',
+  money: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="12" cy="12" r="2.5"/><path d="M6 12h.01M18 12h.01"/></svg>',
+  ticket: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9V6a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v3a2 2 0 0 0 0 6v3a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-3a2 2 0 0 0 0-6z"/><line x1="12" y1="7" x2="12" y2="17" stroke-dasharray="2 3"/></svg>',
+  clock: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>',
+  hand: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>',
+  star: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.1 8.6 22 9.6 17 14.5 18.2 21.5 12 18.2 5.8 21.5 7 14.5 2 9.6 8.9 8.6 12 2"/></svg>',
+  msg: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.4 8.4 0 0 1-9 8.4 8.5 8.5 0 0 1-3.8-.9L3 20.5l1.6-4.9A8.4 8.4 0 0 1 3.6 11 8.4 8.4 0 0 1 12 2.6a8.4 8.4 0 0 1 9 8.9z"/></svg>',
+  box: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.3 7 12 12 20.7 7"/><line x1="12" y1="22" x2="12" y2="12"/></svg>',
+  mais: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg>',
+  cadastros: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="8" y="2" width="8" height="4" rx="1"/><path d="M9 4H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2h-3"/><path d="M9 12l2 2 4-4"/></svg>'
+};
+/* primary: aparece nos 4 slots fixos da barra inferior no celular; o resto cai dentro de "Mais".
+   Cadastros junta Clientes/Serviços/Equipe/Metas — tudo que é "configurar", separado do dia a dia. */
+const VIEWS = [
+  { id: 'painel', label: 'Visão Geral', sub: 'Painel da barbearia', icon: ICO.painel, primary: true },
+  { id: 'agenda', label: 'Agenda', sub: 'Atendimentos do dia', icon: ICO.agenda, primary: true },
+  { id: 'cadastros', label: 'Cadastros', sub: 'Clientes, produtos, equipe e metas', icon: ICO.cadastros, primary: true },
+  { id: 'financeiro', label: 'Financeiro', sub: 'Receitas e despesas', icon: ICO.financeiro, primary: true },
+  { id: 'mensagens', label: 'Mensagens', sub: 'Disparo de WhatsApp', icon: ICO.msg }
+];
+let activeTab = 'painel';
+
+function buildNav() {
+  document.getElementById('nav').innerHTML = VIEWS.map(v => `
+    <button class="tab-btn${v.id === activeTab ? ' active' : ''}" data-tab="${v.id}" onclick="switchTab('${v.id}')" title="${esc(v.label)}">
+      ${v.icon}<span class="sb-label">${esc(v.label)}</span><span class="sb-count" id="cnt-${v.id}"></span>
+    </button>`).join('');
+  buildBottomNav();
+}
+const secundarios = () => VIEWS.filter(v => !v.primary);
+function buildBottomNav() {
+  const primarios = VIEWS.filter(v => v.primary);
+  const emMais = secundarios().some(v => v.id === activeTab);
+  document.getElementById('bottomNav').innerHTML = primarios.map(v => `
+    <button class="tab-btn${v.id === activeTab ? ' active' : ''}" data-tab="${v.id}" onclick="switchTab('${v.id}')">
+      ${v.icon}<span>${esc(v.label.replace('Visão Geral', 'Início'))}</span>
+    </button>`).join('') + `
+    <button class="tab-btn${emMais ? ' active' : ''}" onclick="abrirMais()">
+      ${ICO.mais}<span>Mais</span>
+    </button>`;
+}
+function abrirMais() {
+  const body = secundarios().map(v => `
+    <div class="li clickable" onclick="closeCModal();switchTab('${v.id}')">
+      <div class="ava" style="color:var(--accent)">${v.icon}</div>
+      <div class="lbody"><div class="lt">${esc(v.label)}</div><div class="lm">${esc(v.sub)}</div></div>
+    </div>`).join('') + `
+    <div class="li clickable" onclick="closeCModal();openConfig()">
+      <div class="ava">⚙️</div>
+      <div class="lbody"><div class="lt">Configurações</div><div class="lm">Nome, horário, fidelidade</div></div>
+    </div>`;
+  openCModal('Mais', body, [{ label: 'Fechar', cls: 'btn-ghost', fn: closeCModal }]);
+}
+function switchTab(id) {
+  activeTab = id;
+  document.querySelectorAll('.tab-btn[data-tab]').forEach(b => b.classList.toggle('active', b.dataset.tab === id));
+  const v = VIEWS.find(x => x.id === id) || VIEWS[0];
+  document.getElementById('chromeTitle').textContent = v.label;
+  document.getElementById('chromeSub').textContent = v.sub;
+  document.getElementById('filtrosWrap').style.display = id === 'agenda' ? '' : 'none';
+  document.getElementById('filtrosPanel').classList.remove('open');
+  document.getElementById('main').scrollTop = 0;
+  buildBottomNav();
+  render();
+}
+function updateBadges() {
+  const hoje = db.agendamentos.filter(a => a.data === todayISO() && a.status !== 'cancelado').length;
+  const baixo = db.servicos.filter(s => s.tipo === 'produto' && s.ativo && (s.estoque || 0) <= 3).length;
+  const set = (k, n) => { const el = document.getElementById('cnt-' + k); if (el) el.textContent = n > 0 ? n : ''; };
+  set('agenda', hoje); set('cadastros', baixo);
+}
+function render() {
+  updateBadges();
+  const el = document.getElementById('main');
+  if (activeTab === 'painel') el.innerHTML = renderPainel();
+  else if (activeTab === 'agenda') el.innerHTML = renderAgenda();
+  else if (activeTab === 'cadastros') el.innerHTML = renderCadastros();
+  else if (activeTab === 'mensagens') el.innerHTML = renderMensagens();
+  else if (activeTab === 'financeiro') el.innerHTML = renderFinanceiro();
+  if (activeTab === 'agenda') buildFiltrosPanel();
+}
+
+/* ─────────── Cadastros: Clientes / Serviços / Equipe / Metas num só lugar ─────────── */
+let cadTab = 'clientes';
+function setCadTab(t) { cadTab = t; render(); }
+function irParaMetas() { cadTab = 'metas'; switchTab('cadastros'); }
+function renderCadastros() {
+  return `
+  <div class="modal-tabs">
+    <button class="mtab ${cadTab === 'clientes' ? 'active' : ''}" onclick="setCadTab('clientes')">Clientes</button>
+    <button class="mtab ${cadTab === 'servicos' ? 'active' : ''}" onclick="setCadTab('servicos')">Produtos</button>
+    <button class="mtab ${cadTab === 'equipe' ? 'active' : ''}" onclick="setCadTab('equipe')">Equipe</button>
+    <button class="mtab ${cadTab === 'metas' ? 'active' : ''}" onclick="setCadTab('metas')">Metas</button>
+  </div>
+  ${cadTab === 'clientes' ? renderClientes() : cadTab === 'servicos' ? renderServicos() : cadTab === 'equipe' ? renderProfissionais() : finMetas()}`;
+}
+
+/* ─────────── Métricas ─────────── */
+/* barbearia de um homem só: sem sócio nem comissionado, a aba de comissões só polui a tela */
+const equipeSimples = () => db.profissionais.filter(p => Number(p.comissao) > 0).length === 0;
+function comissaoDe(ag) {
+  const p = getProf(ag.profissionalId), s = getSrv(ag.servicoId);
+  if (!p || !s) return 0;
+  return s.preco * (Number(p.comissao) || 0) / 100;
+}
+function metrics(mk) {
+  mk = mk || curMonthKey();
+  const fin = db.financeiro.filter(f => monthKey(f.data) === mk);
+  const receita = somaBy(fin.filter(f => f.tipo === 'receita'), f => f.valor);
+  const despesa = somaBy(fin.filter(f => f.tipo === 'despesa'), f => f.valor);
+  const conclMes = db.agendamentos.filter(a => a.status === 'concluido' && monthKey(a.data) === mk);
+  const ticket = conclMes.length ? somaBy(conclMes, a => precoSrv(a.servicoId)) / conclMes.length : 0;
+  const hoje = db.agendamentos.filter(a => a.data === todayISO() && a.status !== 'cancelado');
+  const comissoes = somaBy(conclMes, comissaoDe);
+  const meta = db.metas.find(m => m.mes === mk);
+  return {
+    mk, receita, despesa, lucro: receita - despesa - comissoes, conclMes, ticket, hoje, comissoes,
+    meta: meta ? meta.valor : 0, metaPct: meta && meta.valor ? pct(receita, meta.valor) : null
+  };
+}
+function ultimaVisita(clienteId) {
+  const l = db.agendamentos.filter(a => a.clienteId === clienteId && a.status === 'concluido')
+    .map(a => a.data).sort();
+  return l.length ? l[l.length - 1] : null;
+}
+function clientesInativos() {
+  const lim = isoOf(addDays(new Date(), -(Number(db.config.inativoDias) || 45)));
+  return db.clientes.map(c => ({ c, ult: ultimaVisita(c.id) }))
+    .filter(x => !x.ult || x.ult < lim)
+    .sort((a, b) => String(a.ult || '').localeCompare(String(b.ult || '')));
+}
+function comissoesPorProf(mk) {
+  mk = mk || curMonthKey();
+  return db.profissionais.map(p => {
+    const ags = db.agendamentos.filter(a => a.profissionalId === p.id && a.status === 'concluido' && monthKey(a.data) === mk);
+    const fat = somaBy(ags, a => precoSrv(a.servicoId));
+    return { p, atend: ags.length, fat, comissao: fat * (Number(p.comissao) || 0) / 100 };
+  });
+}
+
+/* ══════════════════════════════════════════════════════════════
+   VIEW: Visão Geral
+   ══════════════════════════════════════════════════════════════ */
+function greetingWord() { const h = new Date().getHours(); return h < 12 ? 'Bom dia' : (h < 18 ? 'Boa tarde' : 'Boa noite'); }
+const nomeUsuario = () => (db.config.nomeUsuario || '').trim() || 'você';
+const nomeBarbearia = () => (db.config.nomeBarbearia || '').trim() || 'sua barbearia';
+
+/* primeiro acesso: sem catálogo, os KPIs seriam só zeros — melhor guiar o cadastro */
+function renderPrimeiroAcesso() {
+  const passo = (n, feito, titulo, desc, btn, fn) => `
+    <div class="li">
+      <div class="ava" style="${feito ? 'background:var(--st-done-soft);color:var(--st-done);border-color:var(--st-done)' : ''}">${feito ? '✓' : n}</div>
+      <div class="lbody">
+        <div class="lt">${esc(titulo)}</div>
+        <div class="lm">${esc(desc)}</div>
+      </div>
+      <button class="${feito ? 'mini' : 'btn'}" onclick="${fn}">${esc(btn)}</button>
+    </div>`;
+  return `
+  <div class="greet">
+    <h1>${greetingWord()}, ${esc(nomeUsuario())}.</h1>
+    <div class="sentence">Vamos montar ${esc(nomeBarbearia())} no app. São quatro passos — leva uns minutos.</div>
+  </div>
+  <div class="p-block" style="margin-top:20px">
+    <span class="pb-label">Primeiros passos</span>
+    ${passo(1, !!db.servicos.length, 'Cadastre seus serviços e produtos',
+      'Corte, barba, pomada... é o que você vende. Sem isso não dá para agendar nem faturar.',
+      'Cadastrar', "openServicoForm(null,'servico')")}
+    ${passo(2, !!db.clientes.length, 'Cadastre seus clientes',
+      'Nome e WhatsApp já bastam. O resto (aniversário, observações) você preenche com o tempo.',
+      'Cadastrar', 'openClienteForm()')}
+    ${passo(3, !!db.agendamentos.length, 'Marque o primeiro atendimento',
+      'Ao concluir, o app lança a receita e credita os pontos de fidelidade sozinho.',
+      'Agendar', 'openApptForm()')}
+    ${passo(4, !!db.metas.length, 'Defina sua meta do mês',
+      'É o que transforma o painel num termômetro em vez de um relatório.',
+      'Definir meta', 'openMetaForm()')}
+  </div>
+  <div class="p-row2">
+    <div class="p-block">
+      <span class="pb-label">Seus dados</span>
+      <div style="font-size:.84rem;color:var(--text-dim);line-height:1.6;margin-bottom:12px">
+        O app te chama de <b style="color:var(--text)">${esc(nomeUsuario())}</b> e a casa se chama
+        <b style="color:var(--text)">${esc(nomeBarbearia())}</b>. Dá para mudar, junto com o horário de funcionamento
+        e as regras de fidelidade.
+      </div>
+      <button class="mini" onclick="openConfig()">Abrir configurações</button>
+    </div>
+  </div>`;
+}
+
+function renderPainel() {
+  if (appVazio()) return renderPrimeiroAcesso();
+  const m = metrics();
+  const hojeList = m.hoje.slice().sort((a, b) => a.hora.localeCompare(b.hora));
+  const naoConf = hojeList.filter(a => a.status === 'agendado');
+  const inativos = clientesInativos();
+
+  /* manchete dinâmica */
+  const frases = [];
+  if (hojeList.length) frases.push(`Você tem <b class="g-brass">${hojeList.length} atendimento${hojeList.length > 1 ? 's' : ''}</b> hoje`);
+  else frases.push('Nenhum atendimento marcado para hoje');
+  if (naoConf.length) frases.push(`<b class="g-red">${naoConf.length}</b> ainda sem confirmação`);
+  if (m.metaPct !== null) frases.push(`meta do mês em <b class="${m.metaPct >= 100 ? 'g-green' : 'g-brass'}">${m.metaPct}%</b>`);
+  if (inativos.length) frases.push(`<b>${inativos.length}</b> cliente${inativos.length > 1 ? 's' : ''} sumido${inativos.length > 1 ? 's' : ''} há mais de ${db.config.inativoDias} dias`);
+
+  /* próximos agendamentos */
+  const prox = db.agendamentos
+    .filter(a => (a.status === 'agendado' || a.status === 'confirmado') && a.data >= todayISO())
+    .sort((a, b) => (a.data + a.hora).localeCompare(b.data + b.hora)).slice(0, 6);
+
+  /* serviços mais realizados no mês */
+  const cont = {};
+  m.conclMes.forEach(a => { cont[a.servicoId] = (cont[a.servicoId] || 0) + 1; });
+  const topSrv = Object.entries(cont).map(([id, n]) => ({ id, n })).sort((a, b) => b.n - a.n).slice(0, 5);
+  const maxSrv = topSrv.length ? topSrv[0].n : 1;
+
+  /* aniversariantes do mês */
+  const mesAtual = pad2(new Date().getMonth() + 1);
+  const nivers = db.clientes.filter(c => c.nasc && c.nasc.slice(5, 7) === mesAtual)
+    .sort((a, b) => a.nasc.slice(8).localeCompare(b.nasc.slice(8)));
+
+  return `
+  <div class="greet">
+    <h1>${greetingWord()}, ${esc(nomeUsuario())}.</h1>
+    <div class="sentence">${frases.join(' · ')}.</div>
+  </div>
+
+  <div class="cmd" onclick="switchTab('agenda')">
+    <div class="big">${hojeList.length}</div>
+    <div class="ctxt">
+      <div class="t">Agendamentos para hoje — ${fmtDateLong(todayISO())}</div>
+      <div class="s">${hojeList.length ? `Primeiro às ${hojeList[0].hora} · ${esc(nomeCli(hojeList[0].clienteId))} com ${esc(nomeProf(hojeList[0].profissionalId))}` : 'Agenda livre. Que tal chamar os clientes inativos?'}</div>
+    </div>
+    <div class="go">›</div>
+  </div>
+
+  <span class="section-label">Mês de ${fmtMonth(m.mk)}</span>
+  <div class="m-cards">
+    ${card(moneyShort(m.receita), 'Faturamento do mês', `${m.conclMes.length} atendimentos concluídos`, ICO.money)}
+    ${card(moneyShort(m.ticket), 'Ticket médio', 'por atendimento concluído', ICO.ticket)}
+    ${card(String(m.hoje.length), 'Atendimentos hoje', `${naoConf.length} a confirmar`, ICO.clock)}
+    ${equipeSimples()
+      ? card(moneyShort(m.lucro), 'Sobra do mês', 'receitas − despesas', ICO.hand)
+      : card(moneyShort(m.comissoes), 'Comissões a pagar', 'acumulado do mês', ICO.hand)}
+  </div>
+
+  ${m.meta ? `
+  <div class="goal">
+    <div class="gh">
+      <span class="gt">Meta de ${fmtMonth(m.mk)}</span>
+      <span class="gv">${money(m.receita)} de ${money(m.meta)} · faltam <b style="color:var(--text)">${money(Math.max(0, m.meta - m.receita))}</b></span>
+    </div>
+    <div class="gtrack"><div class="gfill" style="width:${Math.min(100, m.metaPct)}%"></div></div>
+  </div>` : `
+  <div class="goal"><div class="gh"><span class="gt">Sem meta definida para ${fmtMonth(m.mk)}</span>
+    <button class="mini" onclick="irParaMetas()">Definir meta</button></div></div>`}
+
+  <div class="p-row2">
+    <div class="p-block">
+      <span class="pb-label">Próximos agendamentos</span>
+      ${prox.length ? prox.map(a => `
+        <div class="li clickable" onclick="openApptDetail('${a.id}')">
+          <div class="lbar" style="background:${corProf(a.profissionalId)}"></div>
+          <div class="lbody">
+            <div class="lt">${esc(nomeCli(a.clienteId))} ${stTag(a.status)}</div>
+            <div class="lm">${fmtDateLong(a.data)} · ${a.hora} · ${esc(nomeSrv(a.servicoId))} · ${esc(nomeProf(a.profissionalId))}</div>
+          </div>
+          <div class="lend">${money(precoSrv(a.servicoId))}</div>
+        </div>`).join('') : `<div class="empty-soft">Nenhum agendamento futuro.</div>`}
+    </div>
+    <div class="p-block">
+      <span class="pb-label">Serviços mais realizados no mês</span>
+      ${topSrv.length ? topSrv.map(s => `
+        <div class="st-row">
+          <div class="st-name">${esc(nomeSrv(s.id))}</div>
+          <div class="st-track"><div class="st-fill" style="width:${pct(s.n, maxSrv)}%"></div></div>
+          <div class="st-val">${s.n}</div>
+        </div>`).join('') : `<div class="empty-soft">Nenhum atendimento concluído neste mês.</div>`}
+    </div>
+  </div>
+
+  <div class="p-row2">
+    <div class="p-block">
+      <span class="pb-label">Lembrar hoje <span class="tag neutro">${naoConf.length}</span></span>
+      ${naoConf.length ? naoConf.map(a => {
+        const c = getCli(a.clienteId) || {};
+        const msg = `Olá ${firstName(c.nome)}! Aqui é da Barbearia Dom Tavares. Confirmando seu horário hoje às ${a.hora} com ${nomeProf(a.profissionalId)}. Podemos confirmar?`;
+        return `<div class="li">
+          <div class="lbar" style="background:${corProf(a.profissionalId)}"></div>
+          <div class="lbody">
+            <div class="lt">${esc(c.nome || '—')}</div>
+            <div class="lm">${a.hora} · ${esc(nomeSrv(a.servicoId))}</div>
+          </div>
+          ${waBtn(c.tel, msg, 'Lembrar')}
+        </div>`;
+      }).join('') : `<div class="empty-soft">Tudo confirmado para hoje. 👌</div>`}
+    </div>
+    <div class="p-block">
+      <span class="pb-label">Recuperar clientes <span class="tag neutro">${inativos.length}</span></span>
+      ${inativos.length ? inativos.slice(0, 6).map(x => {
+        const msg = `Olá ${firstName(x.c.nome)}! Faz um tempo que você não aparece na Dom Tavares. Bora marcar um horário? ✂️`;
+        return `<div class="li">
+          <div class="ava">${esc(initials(x.c.nome))}</div>
+          <div class="lbody">
+            <div class="lt">${esc(x.c.nome)}</div>
+            <div class="lm">${x.ult ? 'Última visita ' + fmtDateLong(x.ult) : 'Nunca atendido'}</div>
+          </div>
+          ${waBtn(x.c.tel, msg, 'Chamar')}
+        </div>`;
+      }).join('') : `<div class="empty-soft">Nenhum cliente inativo. Excelente retenção!</div>`}
+    </div>
+  </div>
+
+  <div class="p-block" style="margin-top:16px">
+    <span class="pb-label">Aniversariantes de ${MES_LONGO[new Date().getMonth()]}</span>
+    ${nivers.length ? nivers.map(c => {
+      const dia = Number(c.nasc.slice(8, 10));
+      const msg = `Parabéns, ${firstName(c.nome)}! 🎉 A Dom Tavares te deseja tudo de bom — passa aqui pra comemorar com um corte.`;
+      return `<div class="li">
+        <div class="ava">${esc(initials(c.nome))}</div>
+        <div class="lbody">
+          <div class="lt">${esc(c.nome)} <span class="tag brass">dia ${dia}</span></div>
+          <div class="lm">${c.pontos || 0} ponto(s) de fidelidade</div>
+        </div>
+        ${waBtn(c.tel, msg, 'Parabenizar')}
+      </div>`;
+    }).join('') : `<div class="empty-soft">Nenhum aniversariante neste mês.</div>`}
+  </div>`;
+}
+function card(num, lbl, hint, ico, small) {
+  return `<div class="m3d">
+    <div class="ico">${ico || ''}</div>
+    <div class="num${small ? ' sm' : ''}">${num}</div>
+    <div class="lbl">${esc(lbl)}</div>
+    ${hint ? `<div class="hint">${esc(hint)}</div>` : ''}
+  </div>`;
+}
+
+/* ══════════════════════════════════════════════════════════════
+   VIEW: Agenda
+   ══════════════════════════════════════════════════════════════ */
+let agView = 'dia';       // 'dia' (padrão, celular) | 'cal' (semana) | 'lista'
+let agWeek = 0;           // offset de semanas, usado por 'cal' e 'lista'
+let agDia = todayISO();   // dia selecionado, usado por 'dia'
+let agProf = '';          // filtro por profissional
+
+function startOfWeek(offset) {
+  const h = new Date();
+  const seg = addDays(h, -((h.getDay() + 6) % 7));
+  return addDays(seg, offset * 7);
+}
+function mondayOf(iso) { const d = parseISO(iso); return addDays(d, -((d.getDay() + 6) % 7)); }
+function weekOffsetOf(iso) {
+  const cur = mondayOf(todayISO()).getTime(), alvo = mondayOf(iso).getTime();
+  return Math.round((alvo - cur) / (7 * 86400000));
+}
+function setAgView(v) {
+  if (agView === 'dia' && v !== 'dia') agWeek = weekOffsetOf(agDia);
+  if (agView !== 'dia' && v === 'dia') agDia = agWeek === 0 ? todayISO() : isoOf(startOfWeek(agWeek));
+  agView = v; render();
+}
+function agNav(n) { agWeek += n; render(); }
+function agHoje() { agWeek = 0; render(); }
+function diaNav(n) { agDia = isoOf(addDays(parseISO(agDia), n)); render(); }
+function diaHoje() { agDia = todayISO(); render(); }
+function setAgDia(iso) { agDia = iso; render(); }
+function setAgProf(v) { agProf = v; updateFiltrosBadge(); render(); }
+
+function agFiltrada(list) { return agProf ? list.filter(a => a.profissionalId === agProf) : list; }
+
+function renderAgenda() {
+  const seg = startOfWeek(agWeek);
+  const fim = addDays(seg, 6);
+  const titulo = `${pad2(seg.getDate())} ${MES[seg.getMonth()]} — ${pad2(fim.getDate())} ${MES[fim.getMonth()]} ${fim.getFullYear()}`;
+  return `
+  <div class="dataview-bar">
+    <span class="view-seg">
+      <button class="${agView === 'dia' ? 'active' : ''}" onclick="setAgView('dia')">Dia</button>
+      <button class="${agView === 'cal' ? 'active' : ''}" onclick="setAgView('cal')">Semana</button>
+      <button class="${agView === 'lista' ? 'active' : ''}" onclick="setAgView('lista')">Lista</button>
+    </span>
+    <select class="srch" style="min-width:180px" onchange="setAgProf(this.value)">
+      <option value="">Todos os profissionais</option>
+      ${db.profissionais.map(p => `<option value="${p.id}"${agProf === p.id ? ' selected' : ''}>${esc(p.apelido || p.nome)}</option>`).join('')}
+    </select>
+    <button class="btn" data-mobile-hide style="margin-left:auto" onclick="openApptForm()">+ Novo agendamento</button>
+  </div>
+  ${agView === 'dia' ? diaView() : agView === 'cal' ? calGrid(seg, titulo) : agLista()}`;
+}
+
+/* view padrão no celular: um dia por vez, sem grade larga pra rolar com o polegar */
+function diaView() {
+  const seg = mondayOf(agDia);
+  const dias = Array.from({ length: 7 }, (_, i) => isoOf(addDays(seg, i)));
+  const hoje = todayISO();
+  const contDia = {};
+  dias.forEach(d => { contDia[d] = agFiltrada(db.agendamentos.filter(a => a.data === d && a.status !== 'cancelado')).length; });
+  const doDia = agFiltrada(db.agendamentos.filter(a => a.data === agDia))
+    .sort((a, b) => a.hora.localeCompare(b.hora));
+  return `<div class="cal-wrap">
+    <div class="cal-nav" style="justify-content:space-between">
+      <button class="cal-nav-btn" onclick="diaNav(-1)" title="Dia anterior">‹</button>
+      <div class="cal-title">${fmtDateLong(agDia)}${agDia === hoje ? ' <span class="tag brass">hoje</span>' : ''}</div>
+      <button class="cal-nav-btn" onclick="diaNav(1)" title="Próximo dia">›</button>
+    </div>
+    <div class="dia-strip">
+      ${dias.map(d => { const dt = parseISO(d);
+        return `<button class="dia-chip${d === agDia ? ' active' : ''}${d === hoje ? ' today' : ''}" onclick="setAgDia('${d}')">
+          <span class="dc-d">${DOW[dt.getDay()]}</span><span class="dc-n">${pad2(dt.getDate())}</span>
+          ${contDia[d] ? '<span class="dc-dot"></span>' : ''}
+        </button>`;
+      }).join('')}
+    </div>
+    ${agDia !== hoje ? `<button class="mini" style="margin:10px 0 4px" onclick="diaHoje()">Voltar para hoje</button>` : ''}
+    <div style="margin-top:14px">
+      ${doDia.length ? doDia.map(a => `
+        <div class="li clickable" onclick="openApptDetail('${a.id}')">
+          <div class="lbar" style="background:${corProf(a.profissionalId)}"></div>
+          <div class="lbody">
+            <div class="lt">${a.hora} · ${esc(nomeCli(a.clienteId))} ${stTag(a.status)}</div>
+            <div class="lm">${esc(nomeSrv(a.servicoId))} · ${esc(nomeProf(a.profissionalId))}</div>
+          </div>
+          <div class="lend">${money(precoSrv(a.servicoId))}</div>
+        </div>`).join('') : `<div class="empty-soft">Nenhum atendimento neste dia. Toque no <b>+</b> pra agendar.</div>`}
+    </div>
+  </div>`;
+}
+
+function calGrid(seg, titulo) {
+  const ini = hhmmToMin(db.config.abertura), fim = hhmmToMin(db.config.fechamento);
+  const dias = Array.from({ length: 7 }, (_, i) => isoOf(addDays(seg, i)));
+  const hoje = todayISO();
+  const ags = agFiltrada(db.agendamentos.filter(a => dias.includes(a.data)));
+
+  let head = `<div class="cal-corner"></div>` + dias.map(d => {
+    const dt = parseISO(d);
+    return `<div class="cal-dow${d === hoje ? ' today' : ''}"><div class="d1">${DOW[dt.getDay()]}</div><div class="d2">${pad2(dt.getDate())}</div></div>`;
+  }).join('');
+
+  let body = '';
+  for (let h = ini; h < fim; h += 60) {
+    body += `<div class="cal-hour">${minToHHMM(h)}</div>`;
+    dias.forEach(d => {
+      const noSlot = ags.filter(a => a.data === d && hhmmToMin(a.hora) >= h && hhmmToMin(a.hora) < h + 60)
+        .sort((a, b) => a.hora.localeCompare(b.hora));
+      body += `<div class="cal-slot${d === hoje ? ' today-col' : ''}" onclick="openApptForm({data:'${d}',hora:'${minToHHMM(h)}'})">
+        ${noSlot.map(a => `<div class="cal-appt ${a.status === 'concluido' ? 'done' : ''}${a.status === 'cancelado' || a.status === 'faltou' ? ' cancel' : ''}"
+             style="border-left-color:${corProf(a.profissionalId)}"
+             onclick="event.stopPropagation();openApptDetail('${a.id}')" title="${esc(nomeCli(a.clienteId))} — ${esc(nomeSrv(a.servicoId))}">
+             <div class="ca-h">${a.hora} · ${esc(nomeProf(a.profissionalId))}</div>
+             <div class="ca-n">${esc(nomeCli(a.clienteId))}</div>
+           </div>`).join('')}
+      </div>`;
+    });
+  }
+
+  return `<div class="cal-wrap">
+    <div class="cal-nav">
+      <button class="cal-nav-btn" onclick="agNav(-1)" title="Semana anterior">‹</button>
+      <button class="cal-nav-btn" onclick="agNav(1)" title="Próxima semana">›</button>
+      <div class="cal-title">${titulo}</div>
+      <button class="mini" onclick="agHoje()">Hoje</button>
+      <div style="margin-left:auto;font-size:.76rem;color:var(--text-dim)">Clique num horário vago para agendar</div>
+    </div>
+    <div class="cal-scroll"><div class="cal-tbl">${head}${body}</div></div>
+    <div class="cal-legend">
+      ${db.profissionais.map(p => `<div class="cal-legend-item"><div class="cal-legend-dot" style="background:${p.cor}"></div>${esc(p.apelido || p.nome)}</div>`).join('')}
+    </div>
+  </div>`;
+}
+
+function agLista() {
+  const seg = startOfWeek(agWeek);
+  const dias = Array.from({ length: 7 }, (_, i) => isoOf(addDays(seg, i)));
+  const list = agFiltrada(db.agendamentos.filter(a => dias.includes(a.data)))
+    .sort((a, b) => (a.data + a.hora).localeCompare(b.data + b.hora));
+  return `<div class="tbl-wrap">
+    <div class="tbl-header">
+      <div class="tbl-title">Atendimentos da semana</div>
+      <div style="display:flex;gap:8px;align-items:center">
+        <button class="mini" onclick="agNav(-1)">‹ anterior</button>
+        <button class="mini" onclick="agHoje()">hoje</button>
+        <button class="mini" onclick="agNav(1)">próxima ›</button>
+      </div>
+    </div>
+    <div class="tbl-scroll"><table>
+      <thead><tr><th>Data</th><th>Hora</th><th>Cliente</th><th>Serviço</th><th>Profissional</th><th>Valor</th><th>Status</th></tr></thead>
+      <tbody>${list.length ? list.map(a => `
+        <tr onclick="openApptDetail('${a.id}')">
+          <td>${fmtDateLong(a.data)}</td><td><b>${a.hora}</b></td>
+          <td>${esc(nomeCli(a.clienteId))}</td><td>${esc(nomeSrv(a.servicoId))}</td>
+          <td><span style="color:${corProf(a.profissionalId)};font-weight:700">${esc(nomeProf(a.profissionalId))}</span></td>
+          <td>${money(precoSrv(a.servicoId))}</td><td>${stTag(a.status)}</td>
+        </tr>`).join('') : `<tr><td colspan="7"><div class="empty-soft">Nenhum agendamento nesta semana.</div></td></tr>`}
+      </tbody>
+    </table></div>
+  </div>`;
+}
+
+/* ─────────── Filtros no chrome (agenda) ─────────── */
+function buildFiltrosPanel() {
+  document.getElementById('filtrosPanel').innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:center">
+      <span style="font-weight:700;font-size:.9rem">Filtros</span>
+      <button class="mini" onclick="setAgProf('')">Limpar</button>
+    </div>
+    <label>Profissional</label>
+    <select onchange="setAgProf(this.value)">
+      <option value="">Todos</option>
+      ${db.profissionais.map(p => `<option value="${p.id}"${agProf === p.id ? ' selected' : ''}>${esc(p.apelido || p.nome)}</option>`).join('')}
+    </select>`;
+  updateFiltrosBadge();
+}
+function updateFiltrosBadge() {
+  const b = document.getElementById('filtrosBadge');
+  b.style.display = agProf ? 'flex' : 'none';
+}
+function toggleFiltros(e) {
+  e.stopPropagation();
+  document.getElementById('filtrosPanel').classList.toggle('open');
+}
+document.addEventListener('click', e => {
+  const w = document.getElementById('filtrosWrap');
+  if (w && !w.contains(e.target)) document.getElementById('filtrosPanel').classList.remove('open');
+});
+
+/* ══════════════════════════════════════════════════════════════
+   VIEW: Clientes
+   ══════════════════════════════════════════════════════════════ */
+let cliBusca = '';
+function setCliBusca(v) {
+  cliBusca = v;
+  document.getElementById('cliBody').innerHTML = cliRows();
+}
+function cliFiltrados() {
+  const q = cliBusca.trim().toLowerCase();
+  const digits = onlyDigits(q);
+  return db.clientes.filter(c =>
+    !q || c.nome.toLowerCase().includes(q) || (digits && onlyDigits(c.tel).includes(digits))
+  ).sort((a, b) => a.nome.localeCompare(b.nome));
+}
+function cliRows() {
+  const list = cliFiltrados();
+  if (!list.length) return `<tr><td colspan="5"><div class="empty-soft">Nenhum cliente encontrado.</div></td></tr>`;
+  return list.map(c => {
+    const ult = ultimaVisita(c.id);
+    const resgate = Number(db.config.pontosResgate) || 10;
+    return `<tr onclick="openClienteDetail('${c.id}')">
+      <td><div style="display:flex;align-items:center;gap:10px">
+        <span class="avatar">${esc(initials(c.nome))}</span><b>${esc(c.nome)}</b></div></td>
+      <td>${esc(c.tel || '—')}</td>
+      <td><span title="${c.pontos || 0} de ${resgate} pontos" style="color:var(--accent-bright);letter-spacing:1px">
+        ${'●'.repeat(Math.min(c.pontos || 0, resgate))}<span style="color:var(--text-mute)">${'○'.repeat(Math.max(0, resgate - (c.pontos || 0)))}</span></span></td>
+      <td>${ult ? fmtDateLong(ult) : '<span style="color:var(--text-mute)">nunca</span>'}</td>
+      <td>${(c.pontos || 0) >= resgate ? '<span class="tag pos">resgate disponível</span>' : ''}</td>
+    </tr>`;
+  }).join('');
+}
+function renderClientes() {
+  return `
+  <div class="dataview-bar">
+    <input class="srch" type="search" placeholder="🔍 Buscar por nome ou telefone..." value="${esc(cliBusca)}" oninput="setCliBusca(this.value)">
+    <button class="btn" style="margin-left:auto" onclick="openClienteForm()">+ Novo cliente</button>
+  </div>
+  <div class="m-cards m-cards-3" style="margin-bottom:18px">
+    ${card(String(db.clientes.length), 'Clientes cadastrados', '', ICO.clientes)}
+    ${card(String(clientesInativos().length), 'Inativos', `sem visita há ${db.config.inativoDias} dias`, ICO.clock)}
+    ${card(String(db.clientes.filter(c => (c.pontos || 0) >= (db.config.pontosResgate || 10)).length), 'Com resgate disponível', `${db.config.pontosResgate} pontos`, ICO.star)}
+  </div>
+  <div class="tbl-wrap">
+    <div class="tbl-header"><div class="tbl-title">Base de clientes</div></div>
+    <div class="tbl-scroll"><table>
+      <thead><tr><th>Cliente</th><th>Telefone</th><th>Fidelidade</th><th>Última visita</th><th></th></tr></thead>
+      <tbody id="cliBody">${cliRows()}</tbody>
+    </table></div>
+  </div>`;
+}
+
+/* ══════════════════════════════════════════════════════════════
+   VIEW: Mensagens — disparo de WhatsApp
+   O WhatsApp não permite envio em massa por link: o wa.me abre uma
+   conversa por vez. Então a tela monta a fila e marca quem já recebeu.
+   ══════════════════════════════════════════════════════════════ */
+let msgSeg = 'confirmar';
+const MSG_SEGS = {
+  confirmar: { label: 'Confirmar hoje', desc: 'Quem tem horário hoje e ainda não confirmou' },
+  aniversario: { label: 'Aniversariantes', desc: 'Quem faz aniversário neste mês' },
+  retorno: { label: 'Sumidos', desc: 'Quem não aparece há um tempo' },
+  todos: { label: 'Todos os clientes', desc: 'Base inteira — use com parcimônia' }
+};
+const TPL_PADRAO = {
+  confirmar: 'Olá {nome}! Aqui é da {barbearia}. Confirmando seu horário hoje às {hora}. Posso confirmar?',
+  aniversario: 'Parabéns, {nome}! 🎉 A {barbearia} te deseja tudo de bom. Passa aqui pra comemorar com um corte.',
+  retorno: 'Olá {nome}! Faz um tempo que você não aparece na {barbearia}. Bora marcar um horário?',
+  todos: 'Olá {nome}! Aqui é da {barbearia}. '
+};
+const tplDe = seg => (db.config.templates && db.config.templates[seg]) || TPL_PADRAO[seg];
+function setMsgSeg(s) { msgSeg = s; render(); }
+function salvarTemplate() {
+  db.config.templates = Object.assign({}, db.config.templates, { [msgSeg]: val('msgTpl') });
+  saveDB(); render();
+  toast('Modelo de mensagem salvo.', '💬');
+}
+function resetTemplate() {
+  if (db.config.templates) delete db.config.templates[msgSeg];
+  saveDB(); render();
+  toast('Modelo voltou ao padrão.', '↩️');
+}
+/* destinatários do segmento: { c, hora } */
+function msgDestinatarios(seg) {
+  if (seg === 'confirmar') {
+    return db.agendamentos
+      .filter(a => a.data === todayISO() && a.status === 'agendado')
+      .sort((a, b) => a.hora.localeCompare(b.hora))
+      .map(a => ({ c: getCli(a.clienteId), hora: a.hora }))
+      .filter(x => x.c);
+  }
+  if (seg === 'aniversario') {
+    const mes = pad2(new Date().getMonth() + 1);
+    return db.clientes.filter(c => c.nasc && c.nasc.slice(5, 7) === mes)
+      .sort((a, b) => a.nasc.slice(8).localeCompare(b.nasc.slice(8))).map(c => ({ c }));
+  }
+  if (seg === 'retorno') return clientesInativos().map(x => ({ c: x.c, ult: x.ult }));
+  return db.clientes.slice().sort((a, b) => a.nome.localeCompare(b.nome)).map(c => ({ c }));
+}
+function montarMsg(tpl, d) {
+  return String(tpl)
+    .replace(/\{nome\}/g, firstName(d.c.nome))
+    .replace(/\{barbearia\}/g, nomeBarbearia())
+    .replace(/\{hora\}/g, d.hora || '')
+    .replace(/\{data\}/g, fmtDateLong(todayISO()));
+}
+const jaEnviou = (clienteId, seg) => db.msgLog.some(l => l.clienteId === clienteId && l.seg === seg && l.data === todayISO());
+function marcarEnviado(clienteId, seg) {
+  if (!jaEnviou(clienteId, seg)) db.msgLog.push({ id: uid(), clienteId, seg, data: todayISO() });
+  saveDB();
+  if (activeTab === 'mensagens') render();
+}
+function renderMensagens() {
+  const dest = msgDestinatarios(msgSeg).filter(d => d.c);
+  const tpl = tplDe(msgSeg);
+  const enviados = dest.filter(d => jaEnviou(d.c.id, msgSeg)).length;
+  const semTel = dest.filter(d => !onlyDigits(d.c.tel)).length;
+  return `
+  <div class="dataview-bar">
+    <span class="view-seg" style="flex-wrap:wrap">
+      ${Object.keys(MSG_SEGS).map(k => `<button class="${msgSeg === k ? 'active' : ''}" onclick="setMsgSeg('${k}')">${MSG_SEGS[k].label}</button>`).join('')}
+    </span>
+  </div>
+
+  <div class="p-block" style="margin-bottom:16px">
+    <span class="pb-label">Modelo da mensagem
+      <span style="text-transform:none;letter-spacing:0;font-weight:500;color:var(--text-dim)">
+        use <code>{nome}</code>, <code>{barbearia}</code>, <code>{hora}</code>, <code>{data}</code></span></span>
+    <textarea id="msgTpl" style="width:100%;background:var(--surface-2);border:1px solid var(--border);color:var(--text);padding:10px 12px;border-radius:10px;font-size:.87rem;outline:none;font-family:inherit;min-height:76px">${esc(tpl)}</textarea>
+    <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">
+      <button class="mini" onclick="salvarTemplate()">Salvar modelo</button>
+      <button class="mini" onclick="resetTemplate()">Voltar ao padrão</button>
+      <span style="margin-left:auto;font-size:.75rem;color:var(--text-mute);align-self:center">
+        ${MSG_SEGS[msgSeg].desc}${msgSeg === 'retorno' ? ` (${db.config.inativoDias} dias)` : ''}
+      </span>
+    </div>
+  </div>
+
+  <div class="m-cards m-cards-3" style="margin-bottom:16px">
+    ${card(String(dest.length), 'Na fila', MSG_SEGS[msgSeg].label.toLowerCase(), ICO.msg)}
+    ${card(String(enviados), 'Enviados hoje', 'neste segmento', ICO.clock)}
+    ${card(String(semTel), 'Sem telefone', 'não dá para disparar', ICO.clientes)}
+  </div>
+
+  <div class="p-block">
+    <span class="pb-label">Fila de envio <span class="tag neutro">${dest.length}</span></span>
+    ${dest.length ? dest.map(d => {
+      const msg = montarMsg(tpl, d);
+      const tel = onlyDigits(d.c.tel);
+      const ok = jaEnviou(d.c.id, msgSeg);
+      return `<div class="li">
+        <div class="ava">${esc(initials(d.c.nome))}</div>
+        <div class="lbody">
+          <div class="lt">${esc(d.c.nome)} ${ok ? '<span class="tag pos">enviado hoje</span>' : ''}</div>
+          <div class="lm">${d.hora ? d.hora + ' · ' : ''}${d.ult ? 'última visita ' + fmtDateLong(d.ult) : esc(d.c.tel || 'sem telefone')}</div>
+          <div class="lm" style="color:var(--text-dim);margin-top:5px">${esc(msg)}</div>
+        </div>
+        ${tel
+          ? `<a class="wa-btn" href="${waLink(d.c.tel, msg)}" target="_blank" rel="noopener" onclick="marcarEnviado('${d.c.id}','${msgSeg}')">${ok ? 'Enviar de novo' : 'Enviar'}</a>`
+          : `<button class="mini" onclick="openClienteForm('${d.c.id}')">Add telefone</button>`}
+      </div>`;
+    }).join('') : `<div class="empty-soft">Ninguém nesta fila agora.</div>`}
+  </div>
+
+  <div style="font-size:.76rem;color:var(--text-mute);margin-top:14px;line-height:1.6">
+    Cada botão abre a conversa do cliente no WhatsApp com o texto já escrito — você confere e aperta enviar lá.
+    O WhatsApp não permite envio em massa por link, então o app organiza a fila e marca quem já recebeu hoje.
+  </div>`;
+}
+
+/* ══════════════════════════════════════════════════════════════
+   VIEW: Serviços & Produtos
+   ══════════════════════════════════════════════════════════════ */
+let srvTab = 'servico';
+function setSrvTab(t) { srvTab = t; render(); }
+function renderServicos() {
+  const list = db.servicos.filter(s => s.tipo === srvTab);
+  const baixo = db.servicos.filter(s => s.tipo === 'produto' && s.ativo && (s.estoque || 0) <= 3);
+  return `
+  <div class="dataview-bar">
+    <div class="modal-tabs" style="margin:0;border:none">
+      <button class="mtab ${srvTab === 'servico' ? 'active' : ''}" onclick="setSrvTab('servico')">Serviços</button>
+      <button class="mtab ${srvTab === 'pacote' ? 'active' : ''}" onclick="setSrvTab('pacote')">Pacotes</button>
+      <button class="mtab ${srvTab === 'produto' ? 'active' : ''}" onclick="setSrvTab('produto')">Produtos</button>
+    </div>
+    <button class="btn" style="margin-left:auto" onclick="openServicoForm(null,'${srvTab}')">+ Novo ${srvTab}</button>
+  </div>
+  ${srvTab === 'produto' && baixo.length ? `<div class="p-block" style="margin-bottom:16px;border-color:rgba(179,64,58,.4)">
+    <span class="pb-label" style="color:var(--red-bright)">Estoque baixo</span>
+    ${baixo.map(s => `<div class="li"><div class="lbar" style="background:var(--red)"></div>
+      <div class="lbody"><div class="lt">${esc(s.nome)}</div><div class="lm">restam ${s.estoque || 0} unidade(s)</div></div>
+      <button class="mini" onclick="openServicoForm('${s.id}')">Repor</button></div>`).join('')}
+  </div>` : ''}
+  <div class="tbl-wrap">
+    <div class="tbl-header"><div class="tbl-title">${srvTab === 'servico' ? 'Serviços' : srvTab === 'pacote' ? 'Pacotes' : 'Produtos'}</div>
+      <div style="font-size:.76rem;color:var(--text-dim)">${list.length} item(ns)</div></div>
+    <div class="tbl-scroll"><table>
+      <thead><tr><th>Nome</th><th>Preço</th>${srvTab === 'produto' ? '<th>Estoque</th>' : '<th>Duração</th>'}<th>Realizados no mês</th><th>Status</th></tr></thead>
+      <tbody>${list.length ? list.map(s => {
+        const n = db.agendamentos.filter(a => a.servicoId === s.id && a.status === 'concluido' && monthKey(a.data) === curMonthKey()).length;
+        return `<tr onclick="openServicoForm('${s.id}')">
+          <td><b>${esc(s.nome)}</b></td>
+          <td>${money(s.preco)}</td>
+          ${srvTab === 'produto'
+            ? `<td>${(s.estoque || 0) <= 3 ? `<span class="tag neg">${s.estoque || 0} un.</span>` : `${s.estoque || 0} un.`}</td>`
+            : `<td>${s.duracao || 0} min</td>`}
+          <td>${n}</td>
+          <td>${s.ativo ? '<span class="tag pos">ativo</span>' : '<span class="tag neutro">inativo</span>'}</td>
+        </tr>`;
+      }).join('') : `<tr><td colspan="5"><div class="empty-soft">Nada cadastrado aqui ainda.</div></td></tr>`}
+      </tbody>
+    </table></div>
+  </div>`;
+}
+
+/* ══════════════════════════════════════════════════════════════
+   VIEW: Profissionais
+   ══════════════════════════════════════════════════════════════ */
+function renderProfissionais() {
+  const dados = comissoesPorProf();
+  return `
+  <div class="dataview-bar">
+    <span style="font-size:.8rem;color:var(--text-dim)">${equipeSimples()
+      ? `Hoje só você atende. Quando contratar, cadastre aqui com o percentual de comissão — o app passa a fechar a conta de cada um.`
+      : `Comissões calculadas sobre os atendimentos concluídos de ${fmtMonth(curMonthKey())}.`}</span>
+    <button class="btn" style="margin-left:auto" onclick="openProfForm()">+ Novo profissional</button>
+  </div>
+  <div class="m-cards m-cards-3">
+    ${dados.map(d => `
+      <div class="m3d" style="cursor:pointer" onclick="openProfForm('${d.p.id}')">
+        <div class="ico"><span class="avatar" style="background:${d.p.cor}22;color:${d.p.cor};border-color:${d.p.cor}66">${esc(initials(d.p.nome))}</span></div>
+        <div style="font-family:var(--font-display);font-size:1.2rem;font-weight:700">${esc(d.p.apelido || d.p.nome)}</div>
+        <div class="hint" style="margin-bottom:14px">${esc(d.p.nome)} · ${d.p.comissao || 0}% de comissão ${d.p.ativo ? '' : '· <b style="color:var(--red-bright)">inativo</b>'}</div>
+        <div style="display:flex;flex-direction:column;gap:7px;border-top:1px solid var(--border);padding-top:12px">
+          <div style="display:flex;justify-content:space-between;font-size:.76rem;color:var(--text-dim)">Atendimentos no mês <b style="color:var(--text)">${d.atend}</b></div>
+          <div style="display:flex;justify-content:space-between;font-size:.76rem;color:var(--text-dim)">Faturamento gerado <b style="color:var(--text)">${money(d.fat)}</b></div>
+          <div style="display:flex;justify-content:space-between;font-size:.76rem;color:var(--text-dim)">Comissão a pagar <b style="color:var(--accent-bright)">${money(d.comissao)}</b></div>
+        </div>
+      </div>`).join('')}
+  </div>
+  <div class="p-block" style="margin-top:18px">
+    <span class="pb-label">Agenda de hoje por profissional</span>
+    ${db.profissionais.map(p => {
+      const l = db.agendamentos.filter(a => a.profissionalId === p.id && a.data === todayISO() && a.status !== 'cancelado')
+        .sort((a, b) => a.hora.localeCompare(b.hora));
+      return `<div class="li">
+        <div class="lbar" style="background:${p.cor}"></div>
+        <div class="lbody">
+          <div class="lt">${esc(p.apelido || p.nome)} <span class="tag neutro">${l.length} hoje</span></div>
+          <div class="lm">${l.length ? l.map(a => `${a.hora} ${esc(firstName(nomeCli(a.clienteId)))}`).join(' · ') : 'sem atendimentos hoje'}</div>
+        </div>
+      </div>`;
+    }).join('')}
+  </div>`;
+}
+
+/* ══════════════════════════════════════════════════════════════
+   VIEW: Financeiro
+   ══════════════════════════════════════════════════════════════ */
+let finTab = 'mov';
+function setFinTab(t) { finTab = t; render(); }
+function renderFinanceiro() {
+  return `
+  <div class="dataview-bar">
+    <div class="modal-tabs" style="margin:0;border:none">
+      <button class="mtab ${finTab === 'mov' ? 'active' : ''}" onclick="setFinTab('mov')">Receitas &amp; Despesas</button>
+      ${equipeSimples() ? '' : `<button class="mtab ${finTab === 'com' ? 'active' : ''}" onclick="setFinTab('com')">Comissões</button>`}
+      <button class="mtab ${finTab === 'proj' ? 'active' : ''}" onclick="setFinTab('proj')">Projeções</button>
+    </div>
+  </div>
+  ${finTab === 'mov' ? finMov() : (finTab === 'com' && !equipeSimples()) ? finComissoes() : finTab === 'proj' ? finProj() : finMov()}`;
+}
+
+function finMov() {
+  const m = metrics();
+  const list = db.financeiro.filter(f => monthKey(f.data) === m.mk).sort((a, b) => b.data.localeCompare(a.data));
+  const porForma = {};
+  db.financeiro.filter(f => monthKey(f.data) === m.mk && f.tipo === 'receita').forEach(f => {
+    const k = f.formaPag || 'outros'; porForma[k] = (porForma[k] || 0) + f.valor;
+  });
+  const maxF = Math.max(1, ...Object.values(porForma));
+  return `
+  <div class="m-cards">
+    ${card(moneyShort(m.receita), 'Receitas do mês', fmtMonth(m.mk), ICO.money)}
+    ${card(moneyShort(m.despesa), 'Despesas do mês', 'lançamentos manuais', ICO.box)}
+    ${equipeSimples()
+      ? card(String(m.conclMes.length), 'Atendimentos', 'concluídos no mês', ICO.hand)
+      : card(moneyShort(m.comissoes), 'Comissões', 'sobre concluídos', ICO.hand)}
+    ${card(moneyShort(m.lucro), 'Resultado', equipeSimples() ? 'receitas − despesas' : 'receitas − despesas − comissões', ICO.ticket)}
+  </div>
+  <div class="p-row2">
+    <div class="p-block" style="grid-column:1/-1">
+      <span class="pb-label">Receitas por forma de pagamento</span>
+      ${Object.keys(porForma).length ? Object.entries(porForma).sort((a, b) => b[1] - a[1]).map(([k, v]) => `
+        <div class="st-row">
+          <div class="st-name">${PAG_LABEL[k] || k}</div>
+          <div class="st-track"><div class="st-fill" style="width:${pct(v, maxF)}%"></div></div>
+          <div class="st-val" style="min-width:80px">${money(v)}</div>
+        </div>`).join('') : `<div class="empty-soft">Sem receitas no mês.</div>`}
+    </div>
+  </div>
+  <div class="tbl-wrap" style="margin-top:16px">
+    <div class="tbl-header">
+      <div class="tbl-title">Lançamentos de ${fmtMonth(m.mk)}</div>
+      <button class="btn" onclick="openFinForm()">+ Novo lançamento</button>
+    </div>
+    <div class="tbl-scroll"><table>
+      <thead><tr><th>Data</th><th>Descrição</th><th>Categoria</th><th>Forma</th><th>Valor</th><th></th></tr></thead>
+      <tbody>${list.length ? list.map(f => `
+        <tr onclick="${f.auto ? `toast('Lançamento gerado automaticamente pelo atendimento concluído.','🔒')` : `openFinForm('${f.id}')`}">
+          <td>${fmtDate(f.data)}</td>
+          <td><b>${esc(f.descricao)}</b> ${f.auto ? '<span class="tag brass">auto</span>' : ''}</td>
+          <td>${esc(f.categoria || '—')}</td>
+          <td>${PAG_LABEL[f.formaPag] || '—'}</td>
+          <td style="color:${f.tipo === 'receita' ? 'var(--green-bright)' : 'var(--red-bright)'};font-weight:700">
+            ${f.tipo === 'receita' ? '+' : '−'} ${money(f.valor)}</td>
+          <td style="text-align:right">${f.auto ? '' : `<button class="mini no" onclick="event.stopPropagation();delFin('${f.id}')">excluir</button>`}</td>
+        </tr>`).join('') : `<tr><td colspan="6"><div class="empty-soft">Nenhum lançamento neste mês.</div></td></tr>`}
+      </tbody>
+    </table></div>
+  </div>`;
+}
+
+function finComissoes() {
+  const mk = curMonthKey();
+  const dados = comissoesPorProf(mk).filter(d => d.atend > 0 || d.p.ativo);
+  const total = somaBy(dados, d => d.comissao);
+  return `
+  <div class="m-cards m-cards-2">
+    ${card(moneyShort(total), 'Total a pagar', fmtMonth(mk), ICO.hand)}
+    ${card(String(somaBy(dados, d => d.atend)), 'Atendimentos concluídos', 'no mês', ICO.clock)}
+  </div>
+  <div class="tbl-wrap" style="margin-top:16px">
+    <div class="tbl-header"><div class="tbl-title">Fechamento de comissões — ${fmtMonth(mk)}</div></div>
+    <div class="tbl-scroll"><table>
+      <thead><tr><th>Profissional</th><th>%</th><th>Atendimentos</th><th>Faturamento gerado</th><th>Comissão</th></tr></thead>
+      <tbody>${dados.map(d => `
+        <tr onclick="openProfForm('${d.p.id}')">
+          <td><div style="display:flex;align-items:center;gap:10px">
+            <span class="avatar" style="background:${d.p.cor}22;color:${d.p.cor};border-color:${d.p.cor}66">${esc(initials(d.p.nome))}</span>
+            <b>${esc(d.p.apelido || d.p.nome)}</b></div></td>
+          <td>${d.p.comissao || 0}%</td><td>${d.atend}</td><td>${money(d.fat)}</td>
+          <td style="font-weight:700;color:var(--accent-bright)">${money(d.comissao)}</td>
+        </tr>`).join('')}
+        <tr style="cursor:default"><td colspan="4" style="text-align:right;color:var(--text-dim)"><b>Total</b></td>
+          <td style="font-weight:800;color:var(--accent-bright)">${money(total)}</td></tr>
+      </tbody>
+    </table></div>
+  </div>
+  <div class="p-block" style="margin-top:16px">
+    <span class="pb-label">Como é calculado</span>
+    <div style="font-size:.82rem;color:var(--text-dim);line-height:1.6">
+      A comissão é o percentual do profissional aplicado sobre o preço dos serviços <b style="color:var(--text)">concluídos</b> no mês.
+      O cálculo é feito na hora (não fica gravado) — se você mudar o percentual, o histórico do mês é recalculado.
+    </div>
+  </div>`;
+}
+
+function finProj() {
+  const mk = curMonthKey(), m = metrics(mk);
+  const hoje = new Date();
+  const diasNoMes = new Date(hoje.getFullYear(), hoje.getMonth() + 1, 0).getDate();
+  const diaAtual = hoje.getDate();
+  const agendado = somaBy(
+    db.agendamentos.filter(a => monthKey(a.data) === mk && a.data >= todayISO() && (a.status === 'agendado' || a.status === 'confirmado')),
+    a => precoSrv(a.servicoId));
+  const confirmado = somaBy(
+    db.agendamentos.filter(a => monthKey(a.data) === mk && a.data >= todayISO() && a.status === 'confirmado'),
+    a => precoSrv(a.servicoId));
+  const ritmo = diaAtual > 0 ? m.receita / diaAtual : 0;
+  const projRitmo = ritmo * diasNoMes;
+  const projCarteira = m.receita + agendado;
+  const comissaoProj = m.receita > 0 ? projRitmo * (m.comissoes / m.receita) : 0;
+  const lucroProj = projRitmo - m.despesa - comissaoProj;
+  const bar = (label, v, base) => `
+    <div class="st-row">
+      <div class="st-name">${label}</div>
+      <div class="st-track"><div class="st-fill" style="width:${Math.min(100, pct(v, base))}%"></div></div>
+      <div class="st-val" style="min-width:90px">${money(v)}</div>
+    </div>`;
+  const base = Math.max(m.meta, projRitmo, projCarteira, m.receita, 1);
+  return `
+  <div class="m-cards">
+    ${card(moneyShort(m.receita), 'Realizado', `até dia ${diaAtual}`, ICO.money)}
+    ${card(moneyShort(confirmado), 'Agenda confirmada', 'ainda por atender', ICO.clock)}
+    ${card(moneyShort(projRitmo), 'Projeção do mês', `ritmo de ${moneyShort(ritmo)}/dia`, ICO.ticket)}
+    ${card(moneyShort(lucroProj), 'Lucro projetado', 'já descontando comissões', ICO.hand)}
+  </div>
+  <div class="p-block" style="margin-top:18px">
+    <span class="pb-label">Realizado × Agenda × Meta — ${fmtMonth(mk)}</span>
+    ${bar('Realizado', m.receita, base)}
+    ${bar('Realizado + agenda', projCarteira, base)}
+    ${bar('Projeção por ritmo', projRitmo, base)}
+    ${m.meta ? bar('Meta do mês', m.meta, base) : ''}
+    <div style="font-size:.78rem;color:var(--text-dim);margin-top:14px;line-height:1.6">
+      ${m.meta ? (projRitmo >= m.meta
+        ? `No ritmo atual você <b class="g-green">bate a meta</b> e ainda sobra ${money(projRitmo - m.meta)}.`
+        : `No ritmo atual você fecha o mês <b class="g-red">${money(m.meta - projRitmo)} abaixo da meta</b> — são cerca de <b>${Math.ceil((m.meta - projRitmo) / Math.max(1, m.ticket))} atendimentos</b> a mais.`)
+        : 'Defina uma meta em <b>Cadastros → Metas</b> para acompanhar o quanto falta.'}
+      <br><span style="color:var(--text-mute)">A projeção é linear (média diária) e não considera sazonalidade por dia da semana.</span>
+    </div>
+  </div>
+  <div class="p-row2">
+    <div class="p-block"><span class="pb-label">Composição do resultado projetado</span>
+      <div class="li"><div class="lbody"><div class="lt">Receita projetada</div></div><div class="lend" style="color:var(--green-bright)">${money(projRitmo)}</div></div>
+      <div class="li"><div class="lbody"><div class="lt">Despesas lançadas no mês</div></div><div class="lend" style="color:var(--red-bright)">− ${money(m.despesa)}</div></div>
+      <div class="li"><div class="lbody"><div class="lt">Comissões projetadas</div></div><div class="lend" style="color:var(--red-bright)">− ${money(comissaoProj)}</div></div>
+      <div class="li"><div class="lbody"><div class="lt"><b>Lucro projetado</b></div></div><div class="lend" style="color:var(--accent-bright)">${money(lucroProj)}</div></div>
+    </div>
+    <div class="p-block"><span class="pb-label">Indicadores</span>
+      <div class="li"><div class="lbody"><div class="lt">Ticket médio</div><div class="lm">atendimentos concluídos no mês</div></div><div class="lend">${money(m.ticket)}</div></div>
+      <div class="li"><div class="lbody"><div class="lt">Atendimentos concluídos</div><div class="lm">${diaAtual} de ${diasNoMes} dias</div></div><div class="lend">${m.conclMes.length}</div></div>
+      <div class="li"><div class="lbody"><div class="lt">Média por dia corrido</div></div><div class="lend">${(m.conclMes.length / Math.max(1, diaAtual)).toFixed(1)}</div></div>
+      <div class="li"><div class="lbody"><div class="lt">Margem projetada</div></div><div class="lend">${projRitmo > 0 ? pct(lucroProj, projRitmo) : 0}%</div></div>
+    </div>
+  </div>`;
+}
+
+function finMetas() {
+  const list = db.metas.slice().sort((a, b) => b.mes.localeCompare(a.mes));
+  return `
+  <div class="dataview-bar">
+    <span style="font-size:.8rem;color:var(--text-dim)">Meta de faturamento por mês — acompanhada com as receitas lançadas.</span>
+    <button class="btn" style="margin-left:auto" onclick="openMetaForm()">+ Nova meta</button>
+  </div>
+  ${list.length ? list.map(mt => {
+    const rec = somaBy(db.financeiro.filter(f => f.tipo === 'receita' && monthKey(f.data) === mt.mes), f => f.valor);
+    const p = pct(rec, mt.valor);
+    return `<div class="goal" style="margin-top:14px;cursor:pointer" onclick="openMetaForm('${mt.id}')">
+      <div class="gh">
+        <span class="gt">${fmtMonth(mt.mes)} ${p >= 100 ? '<span class="tag pos">batida</span>' : ''}</span>
+        <span class="gv">${money(rec)} de ${money(mt.valor)} · <b style="color:var(--text)">${p}%</b></span>
+      </div>
+      <div class="gtrack"><div class="gfill" style="width:${Math.min(100, p)}%"></div></div>
+    </div>`;
+  }).join('') : `<div class="p-block"><div class="empty-soft">Nenhuma meta cadastrada.</div></div>`}`;
+}
+
+/* ══════════════════════════════════════════════════════════════
+   Overlays: drawer lateral + modal central
+   ══════════════════════════════════════════════════════════════ */
+let _dwActions = [], _cmActions = [];
+function fillOverlay(elId, title, body, actions, store) {
+  const el = document.getElementById(elId);
+  el.querySelector('.dw-title').textContent = title;
+  el.querySelector('.dw-body').innerHTML = body;
+  const foot = el.querySelector('.dw-foot');
+  const acts = actions || [];
+  store.length = 0; acts.forEach(a => store.push(a));
+  foot.innerHTML = acts.map((a, i) => `<button class="btn ${a.cls || ''}" data-i="${i}">${esc(a.label)}</button>`).join('');
+  foot.style.display = acts.length ? 'flex' : 'none';
+  el.classList.add('open');
+}
+function openDrawer(title, body, actions) {
+  fillOverlay('drawer', title, body, actions, _dwActions);
+  document.getElementById('fabStack').classList.add('drawer-open');
+}
+function closeDrawer() {
+  document.getElementById('drawer').classList.remove('open');
+  document.getElementById('fabStack').classList.remove('drawer-open');
+}
+function openCModal(title, body, actions) { fillOverlay('cmodal', title, body, actions, _cmActions); }
+function closeCModal() { document.getElementById('cmodal').classList.remove('open'); }
+document.getElementById('drawer').querySelector('.dw-foot').addEventListener('click', e => {
+  const b = e.target.closest('button[data-i]'); if (b) _dwActions[Number(b.dataset.i)].fn();
+});
+document.getElementById('cmodal').querySelector('.dw-foot').addEventListener('click', e => {
+  const b = e.target.closest('button[data-i]'); if (b) _cmActions[Number(b.dataset.i)].fn();
+});
+document.getElementById('drawer').addEventListener('click', e => { if (e.target.id === 'drawer') closeDrawer(); });
+document.getElementById('cmodal').addEventListener('click', e => { if (e.target.id === 'cmodal') closeCModal(); });
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') { closeDrawer(); closeCModal(); document.getElementById('filtrosPanel').classList.remove('open'); }
+});
+const val = id => (document.getElementById(id) || {}).value || '';
+
+/* ══════════════════════════════════════════════════════════════
+   Ações: Agendamentos
+   ══════════════════════════════════════════════════════════════ */
+function openApptForm(pre) {
+  pre = pre || {};
+  const ag = pre.id ? db.agendamentos.find(a => a.id === pre.id) : null;
+  const data = ag ? ag.data : (pre.data || todayISO());
+  const hora = ag ? ag.hora : (pre.hora || '09:00');
+  const vendaveis = db.servicos.filter(s => s.ativo || (ag && s.id === ag.servicoId));
+  const body = `
+    <div class="form-grid">
+      <div class="full">
+        <label>Cliente</label>
+        <select id="fCliente">
+          ${db.clientes.slice().sort((a, b) => a.nome.localeCompare(b.nome)).map(c =>
+            `<option value="${c.id}"${ag && ag.clienteId === c.id ? ' selected' : ''}>${esc(c.nome)}</option>`).join('')}
+        </select>
+        ${db.clientes.length ? '' : '<div style="font-size:.75rem;color:var(--red-bright);margin-top:6px">Cadastre um cliente primeiro.</div>'}
+      </div>
+      <div class="full">
+        <label>Serviço / Produto</label>
+        <select id="fServico" onchange="apptPreview()">
+          ${vendaveis.map(s => `<option value="${s.id}"${ag && ag.servicoId === s.id ? ' selected' : ''}>${esc(s.nome)} — ${money(s.preco)}</option>`).join('')}
+        </select>
+      </div>
+      <div>
+        <label>Profissional</label>
+        <select id="fProf">
+          ${db.profissionais.filter(p => p.ativo || (ag && p.id === ag.profissionalId)).map(p =>
+            `<option value="${p.id}"${ag && ag.profissionalId === p.id ? ' selected' : ''}>${esc(p.apelido || p.nome)}</option>`).join('')}
+        </select>
+      </div>
+      <div>
+        <label>Status</label>
+        <select id="fStatus">
+          ${Object.keys(ST_LABEL).map(k => `<option value="${k}"${(ag ? ag.status : 'agendado') === k ? ' selected' : ''}>${ST_LABEL[k]}</option>`).join('')}
+        </select>
+      </div>
+      <div><label>Data</label><input type="date" id="fData" value="${data}"></div>
+      <div><label>Hora</label><input type="time" id="fHora" value="${hora}" step="300"></div>
+      <div class="full"><label>Observações</label><textarea id="fObs" placeholder="Preferências, combinados...">${esc(ag ? ag.obs : '')}</textarea></div>
+      <div class="full" id="apptPrev"></div>
+    </div>`;
+  const actions = [{ label: ag ? 'Salvar alterações' : 'Agendar', cls: '', fn: () => salvarAppt(ag && ag.id) }];
+  if (ag) actions.push({ label: 'Excluir', cls: 'btn-danger', fn: () => delAppt(ag.id) });
+  actions.push({ label: 'Cancelar', cls: 'btn-ghost', fn: closeDrawer });
+  openDrawer(ag ? 'Editar agendamento' : 'Novo agendamento', body, actions);
+  apptPreview();
+}
+function apptPreview() {
+  const s = getSrv(val('fServico'));
+  const el = document.getElementById('apptPrev');
+  if (!el || !s) return;
+  el.innerHTML = `<div class="det-item"><div class="k">Resumo</div>
+    <div class="v">${money(s.preco)}${s.duracao ? ` · ${s.duracao} min` : ''}${s.tipo !== 'servico' ? ` · ${s.tipo}` : ''}</div></div>`;
+}
+function salvarAppt(id) {
+  const cliente = val('fCliente'), servico = val('fServico'), prof = val('fProf');
+  if (!cliente || !servico || !prof) { toast('Preencha cliente, serviço e profissional.', '⚠️'); return; }
+  const dados = {
+    clienteId: cliente, servicoId: servico, profissionalId: prof,
+    data: val('fData'), hora: val('fHora'), status: val('fStatus'), obs: val('fObs')
+  };
+  if (!dados.data || !dados.hora) { toast('Informe data e hora.', '⚠️'); return; }
+  if (id) {
+    const ag = db.agendamentos.find(a => a.id === id);
+    Object.assign(ag, dados);
+    toast('Agendamento atualizado.', '✏️');
+  } else {
+    db.agendamentos.push(Object.assign({ id: uid(), formaPag: null }, dados));
+    toast(`Agendado: <b>${esc(nomeCli(cliente))}</b> em ${fmtDateLong(dados.data)} às ${dados.hora}.`, '📅');
+  }
+  saveDB(); closeDrawer(); render();
+}
+function delAppt(id) {
+  db.agendamentos = db.agendamentos.filter(a => a.id !== id);
+  db.financeiro = db.financeiro.filter(f => f.agendamentoId !== id);
+  saveDB(); closeDrawer(); render();
+  toast('Agendamento excluído.', '🗑️');
+}
+function openApptDetail(id) {
+  const a = db.agendamentos.find(x => x.id === id);
+  if (!a) return;
+  const c = getCli(a.clienteId) || {}, s = getSrv(a.servicoId) || {}, p = getProf(a.profissionalId) || {};
+  const msg = `Olá ${firstName(c.nome)}! Aqui é da Barbearia Dom Tavares. Seu horário está marcado para ${fmtDateLong(a.data)} às ${a.hora} com ${p.apelido || p.nome}. Confirma pra mim?`;
+  const body = `
+    <div class="det-grid">
+      <div class="det-item"><div class="k">Cliente</div><div class="v">${esc(c.nome || '—')}</div></div>
+      <div class="det-item"><div class="k">Status</div><div class="v">${stTag(a.status)}</div></div>
+      <div class="det-item"><div class="k">Data</div><div class="v">${fmtDateLong(a.data)}</div></div>
+      <div class="det-item"><div class="k">Hora</div><div class="v">${a.hora}${s.duracao ? ` · ${s.duracao} min` : ''}</div></div>
+      <div class="det-item"><div class="k">Serviço</div><div class="v">${esc(s.nome || '—')}</div></div>
+      <div class="det-item"><div class="k">Valor</div><div class="v">${money(s.preco || 0)}</div></div>
+      <div class="det-item"><div class="k">Profissional</div><div class="v" style="color:${p.cor || 'var(--accent)'}">${esc(p.apelido || p.nome || '—')}</div></div>
+      <div class="det-item"><div class="k">Comissão</div><div class="v">${money(comissaoDe(a))} <span style="font-size:.7rem;color:var(--text-mute)">(${p.comissao || 0}%)</span></div></div>
+      ${a.formaPag ? `<div class="det-item"><div class="k">Forma de pagamento</div><div class="v">${PAG_LABEL[a.formaPag]}</div></div>` : ''}
+    </div>
+    ${a.obs ? `<div class="det-item" style="margin-bottom:18px"><div class="k">Observações</div><div class="v" style="font-weight:500;font-size:.84rem">${esc(a.obs)}</div></div>` : ''}
+    ${waBtn(c.tel, msg, 'Falar no WhatsApp')}
+    <div class="det-sep"></div>
+    <span class="pb-label" style="display:block;font-size:.66rem;text-transform:uppercase;letter-spacing:1.4px;color:var(--text-mute);font-weight:700;margin-bottom:10px">Mudar status</span>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <button class="mini ok" onclick="setStatus('${a.id}','confirmado')">Confirmar</button>
+      <button class="mini no" onclick="setStatus('${a.id}','faltou')">Faltou</button>
+      <button class="mini no" onclick="setStatus('${a.id}','cancelado')">Cancelar</button>
+      <button class="mini" onclick="setStatus('${a.id}','agendado')">Voltar p/ agendado</button>
+    </div>
+    <div class="det-sep"></div>
+    <div style="font-size:.78rem;color:var(--text-dim);line-height:1.5">
+      Concluir o atendimento gera a <b style="color:var(--text)">receita</b> automaticamente e credita
+      <b style="color:var(--text)">${db.config.pontosPorCorte} ponto(s)</b> de fidelidade ao cliente.
+    </div>`;
+  const actions = [];
+  if (a.status !== 'concluido') actions.push({ label: 'Concluir atendimento', cls: 'btn-ok', fn: () => concluir(a.id) });
+  actions.push({ label: 'Editar', cls: 'btn-ghost', fn: () => openApptForm({ id: a.id }) });
+  actions.push({ label: 'Excluir', cls: 'btn-danger', fn: () => delAppt(a.id) });
+  openDrawer('Atendimento', body, actions);
+}
+function setStatus(id, st) {
+  const a = db.agendamentos.find(x => x.id === id);
+  if (!a) return;
+  if (a.status === 'concluido' && st !== 'concluido') {
+    db.financeiro = db.financeiro.filter(f => f.agendamentoId !== id);
+    const c = getCli(a.clienteId);
+    if (c) c.pontos = Math.max(0, (c.pontos || 0) - (Number(db.config.pontosPorCorte) || 0));
+  }
+  a.status = st;
+  saveDB(); render(); openApptDetail(id);
+  toast(`Status alterado para <b>${ST_LABEL[st]}</b>.`, '🔁');
+}
+function concluir(id) {
+  const a = db.agendamentos.find(x => x.id === id);
+  if (!a || a.status === 'concluido') return;
+  const s = getSrv(a.servicoId) || { preco: 0, nome: '—' };
+  const c = getCli(a.clienteId);
+  const body = `
+    <div style="font-size:.86rem;color:var(--text-dim);line-height:1.6;margin-bottom:18px">
+      Concluir <b style="color:var(--text)">${esc(s.nome)}</b> de <b style="color:var(--text)">${esc(c ? c.nome : '—')}</b>
+      no valor de <b style="color:var(--accent-bright)">${money(s.preco)}</b>.
+    </div>
+    <label>Forma de pagamento</label>
+    <select id="fPag">
+      <option value="pix">PIX</option><option value="dinheiro">Dinheiro</option>
+      <option value="cartao">Cartão</option><option value="pacote">Pacote (já pago)</option>
+    </select>`;
+  openCModal('Concluir atendimento', body, [
+    { label: 'Confirmar', fn: () => {
+      const forma = val('fPag');
+      a.status = 'concluido'; a.formaPag = forma;
+      if (forma !== 'pacote') {
+        db.financeiro.push({
+          id: uid(), data: a.data, tipo: 'receita', categoria: s.tipo === 'produto' ? 'Produtos' : 'Atendimento',
+          descricao: `${s.nome} — ${c ? c.nome : '—'}`, valor: s.preco, formaPag: forma,
+          auto: true, agendamentoId: a.id
+        });
+      }
+      let msgExtra = '';
+      if (c) {
+        c.pontos = (c.pontos || 0) + (Number(db.config.pontosPorCorte) || 0);
+        const resgate = Number(db.config.pontosResgate) || 10;
+        if (c.pontos >= resgate) msgExtra = `<br><b>${esc(firstName(c.nome))} atingiu ${c.pontos} pontos</b> — resgate liberado!`;
+      }
+      saveDB(); closeCModal(); closeDrawer(); render();
+      toast(`Atendimento concluído · receita de <b>${money(s.preco)}</b> lançada.${msgExtra}`, '✅');
+    } },
+    { label: 'Voltar', cls: 'btn-ghost', fn: closeCModal }
+  ]);
+}
+
+/* ══════════════════════════════════════════════════════════════
+   Ações: Clientes
+   ══════════════════════════════════════════════════════════════ */
+function openClienteForm(id) {
+  const c = id ? getCli(id) : null;
+  const body = `
+    <div class="form-grid">
+      <div class="full"><label>Nome completo</label><input id="fNome" value="${esc(c ? c.nome : '')}" placeholder="Ex.: Bruno Carvalho"></div>
+      <div><label>Telefone / WhatsApp</label><input id="fTel" value="${esc(c ? c.tel : '')}" placeholder="81 98888-0000"></div>
+      <div><label>Nascimento</label><input type="date" id="fNasc" value="${c && c.nasc ? c.nasc : ''}"></div>
+      <div class="full"><label>E-mail</label><input id="fEmail" value="${esc(c ? c.email : '')}" placeholder="opcional"></div>
+      <div><label>Pontos de fidelidade</label><input type="number" id="fPontos" min="0" value="${c ? (c.pontos || 0) : 0}"></div>
+      <div><label>Cadastro</label><input type="date" id="fCad" value="${c && c.cadastro ? c.cadastro : todayISO()}"></div>
+      <div class="full"><label>Observações</label><textarea id="fObsC" placeholder="Preferência de corte, alergias, histórico...">${esc(c ? c.obs : '')}</textarea></div>
+    </div>`;
+  const actions = [{ label: c ? 'Salvar' : 'Cadastrar', fn: () => salvarCliente(id) }];
+  if (c) actions.push({ label: 'Excluir', cls: 'btn-danger', fn: () => delCliente(id) });
+  actions.push({ label: 'Cancelar', cls: 'btn-ghost', fn: closeDrawer });
+  openDrawer(c ? 'Editar cliente' : 'Novo cliente', body, actions);
+}
+function salvarCliente(id) {
+  const nome = val('fNome').trim();
+  if (!nome) { toast('Informe o nome do cliente.', '⚠️'); return; }
+  const dados = {
+    nome, tel: val('fTel').trim(), email: val('fEmail').trim(), nasc: val('fNasc'),
+    pontos: Number(val('fPontos')) || 0, obs: val('fObsC'), cadastro: val('fCad') || todayISO()
+  };
+  if (id) Object.assign(getCli(id), dados);
+  else db.clientes.push(Object.assign({ id: uid() }, dados));
+  saveDB(); closeDrawer(); render();
+  toast(id ? 'Cliente atualizado.' : `<b>${esc(nome)}</b> cadastrado.`, '👤');
+}
+function delCliente(id) {
+  const n = db.agendamentos.filter(a => a.clienteId === id).length;
+  if (n) { toast(`Este cliente tem ${n} agendamento(s) no histórico e não pode ser excluído.`, '⚠️'); return; }
+  db.clientes = db.clientes.filter(c => c.id !== id);
+  saveDB(); closeDrawer(); render();
+  toast('Cliente excluído.', '🗑️');
+}
+function openClienteDetail(id) {
+  const c = getCli(id);
+  if (!c) return;
+  const hist = db.agendamentos.filter(a => a.clienteId === id).sort((a, b) => (b.data + b.hora).localeCompare(a.data + a.hora));
+  const gasto = somaBy(hist.filter(a => a.status === 'concluido'), a => precoSrv(a.servicoId));
+  const resgate = Number(db.config.pontosResgate) || 10;
+  const ult = ultimaVisita(id);
+  const msg = `Olá ${firstName(c.nome)}! Aqui é da Barbearia Dom Tavares. Tudo certo? Quer marcar um horário?`;
+  const body = `
+    <div style="display:flex;align-items:center;gap:14px;margin-bottom:18px">
+      <span class="avatar" style="width:52px;height:52px;font-size:1.05rem">${esc(initials(c.nome))}</span>
+      <div>
+        <div style="font-family:var(--font-display);font-size:1.15rem;font-weight:700">${esc(c.nome)}</div>
+        <div style="font-size:.78rem;color:var(--text-dim)">${esc(c.tel || 'sem telefone')}${c.email ? ' · ' + esc(c.email) : ''}</div>
+      </div>
+    </div>
+    <div class="det-grid">
+      <div class="det-item"><div class="k">Total gasto</div><div class="v">${money(gasto)}</div></div>
+      <div class="det-item"><div class="k">Atendimentos</div><div class="v">${hist.filter(a => a.status === 'concluido').length}</div></div>
+      <div class="det-item"><div class="k">Fidelidade</div><div class="v">${c.pontos || 0} / ${resgate} ${(c.pontos || 0) >= resgate ? '<span class="tag pos">resgate</span>' : ''}</div></div>
+      <div class="det-item"><div class="k">Última visita</div><div class="v" style="font-size:.82rem">${ult ? fmtDateLong(ult) : 'nunca'}</div></div>
+      <div class="det-item"><div class="k">Nascimento</div><div class="v" style="font-size:.82rem">${c.nasc ? fmtDateLong(c.nasc) : '—'}</div></div>
+      <div class="det-item"><div class="k">Cliente desde</div><div class="v" style="font-size:.82rem">${c.cadastro ? fmtDateLong(c.cadastro) : '—'}</div></div>
+    </div>
+    ${c.obs ? `<div class="det-item" style="margin-bottom:16px"><div class="k">Observações</div><div class="v" style="font-weight:500;font-size:.84rem">${esc(c.obs)}</div></div>` : ''}
+    ${waBtn(c.tel, msg, 'Falar no WhatsApp')}
+    <div class="det-sep"></div>
+    <span style="display:block;font-size:.66rem;text-transform:uppercase;letter-spacing:1.4px;color:var(--text-mute);font-weight:700;margin-bottom:6px">Histórico</span>
+    ${hist.length ? hist.slice(0, 20).map(a => `
+      <div class="li clickable" onclick="openApptDetail('${a.id}')">
+        <div class="lbar" style="background:${corProf(a.profissionalId)}"></div>
+        <div class="lbody">
+          <div class="lt">${esc(nomeSrv(a.servicoId))} ${stTag(a.status)}</div>
+          <div class="lm">${fmtDateLong(a.data)} · ${a.hora} · ${esc(nomeProf(a.profissionalId))}</div>
+        </div>
+        <div class="lend">${money(precoSrv(a.servicoId))}</div>
+      </div>`).join('') : `<div class="empty-soft">Nenhum atendimento registrado.</div>`}`;
+  openDrawer('Cliente', body, [
+    { label: 'Agendar', fn: () => openApptForm() },
+    { label: 'Editar', cls: 'btn-ghost', fn: () => openClienteForm(id) }
+  ]);
+}
+
+/* ══════════════════════════════════════════════════════════════
+   Ações: Serviços / Produtos
+   ══════════════════════════════════════════════════════════════ */
+function openServicoForm(id, tipoPre) {
+  const s = id ? getSrv(id) : null;
+  const tipo = s ? s.tipo : (tipoPre || 'servico');
+  const body = `
+    <div class="form-grid">
+      <div class="full"><label>Nome</label><input id="fSNome" value="${esc(s ? s.nome : '')}" placeholder="Ex.: Corte Degradê"></div>
+      <div>
+        <label>Tipo</label>
+        <select id="fSTipo" onchange="srvTipoChange()">
+          <option value="servico"${tipo === 'servico' ? ' selected' : ''}>Serviço</option>
+          <option value="pacote"${tipo === 'pacote' ? ' selected' : ''}>Pacote</option>
+          <option value="produto"${tipo === 'produto' ? ' selected' : ''}>Produto</option>
+        </select>
+      </div>
+      <div><label>Preço (R$)</label><input type="number" id="fSPreco" step="0.01" min="0" value="${s ? s.preco : ''}"></div>
+      <div id="wrapDur"><label>Duração (min)</label><input type="number" id="fSDur" min="0" step="5" value="${s ? (s.duracao || 0) : 40}"></div>
+      <div id="wrapEst"><label>Estoque (un.)</label><input type="number" id="fSEst" min="0" value="${s ? (s.estoque || 0) : 0}"></div>
+      <div class="full"><label>Situação</label>
+        <select id="fSAtivo"><option value="1"${!s || s.ativo ? ' selected' : ''}>Ativo</option><option value="0"${s && !s.ativo ? ' selected' : ''}>Inativo</option></select>
+      </div>
+    </div>`;
+  const actions = [{ label: s ? 'Salvar' : 'Cadastrar', fn: () => salvarServico(id) }];
+  if (s) actions.push({ label: 'Excluir', cls: 'btn-danger', fn: () => delServico(id) });
+  actions.push({ label: 'Cancelar', cls: 'btn-ghost', fn: closeDrawer });
+  openDrawer(s ? 'Editar item' : 'Novo item', body, actions);
+  srvTipoChange();
+}
+function srvTipoChange() {
+  const t = val('fSTipo');
+  const dur = document.getElementById('wrapDur'), est = document.getElementById('wrapEst');
+  if (!dur || !est) return;
+  dur.style.display = t === 'produto' ? 'none' : '';
+  est.style.display = t === 'produto' ? '' : 'none';
+}
+function salvarServico(id) {
+  const nome = val('fSNome').trim();
+  if (!nome) { toast('Informe o nome do item.', '⚠️'); return; }
+  const tipo = val('fSTipo');
+  const dados = {
+    nome, tipo, preco: Number(val('fSPreco')) || 0,
+    duracao: tipo === 'produto' ? 0 : (Number(val('fSDur')) || 0),
+    ativo: val('fSAtivo') === '1'
+  };
+  if (tipo === 'produto') dados.estoque = Number(val('fSEst')) || 0;
+  if (id) { const s = getSrv(id); Object.assign(s, dados); if (tipo !== 'produto') delete s.estoque; }
+  else db.servicos.push(Object.assign({ id: uid() }, dados));
+  srvTab = tipo;
+  saveDB(); closeDrawer(); render();
+  toast(id ? 'Item atualizado.' : `<b>${esc(nome)}</b> cadastrado.`, '✂️');
+}
+function delServico(id) {
+  const n = db.agendamentos.filter(a => a.servicoId === id).length;
+  if (n) { toast(`Este item aparece em ${n} agendamento(s). Marque como inativo em vez de excluir.`, '⚠️'); return; }
+  db.servicos = db.servicos.filter(s => s.id !== id);
+  saveDB(); closeDrawer(); render();
+  toast('Item excluído.', '🗑️');
+}
+
+/* ══════════════════════════════════════════════════════════════
+   Ações: Profissionais
+   ══════════════════════════════════════════════════════════════ */
+const CORES = ['#2f6fb0', '#2f7d51', '#a9761a', '#7a5ea8', '#c0392f', '#4a5a68'];
+function openProfForm(id) {
+  const p = id ? getProf(id) : null;
+  const body = `
+    <div class="form-grid">
+      <div class="full"><label>Nome completo</label><input id="fPNome" value="${esc(p ? p.nome : '')}" placeholder="Ex.: Rafael Almeida"></div>
+      <div><label>Apelido (agenda)</label><input id="fPApelido" value="${esc(p ? p.apelido : '')}" placeholder="Rafa"></div>
+      <div><label>Telefone</label><input id="fPTel" value="${esc(p ? p.tel : '')}" placeholder="81 99999-0000"></div>
+      <div><label>Comissão (%)</label><input type="number" id="fPCom" min="0" max="100" value="${p ? (p.comissao || 0) : 40}"></div>
+      <div><label>Situação</label>
+        <select id="fPAtivo"><option value="1"${!p || p.ativo ? ' selected' : ''}>Ativo</option><option value="0"${p && !p.ativo ? ' selected' : ''}>Inativo</option></select>
+      </div>
+      <div class="full"><label>Cor na agenda</label>
+        <select id="fPCor">${CORES.map(c => `<option value="${c}"${p && p.cor === c ? ' selected' : ''}>${c}</option>`).join('')}</select>
+      </div>
+    </div>
+    ${p ? `<div class="det-sep"></div>
+    <div class="det-grid">
+      <div class="det-item"><div class="k">Atendimentos no mês</div><div class="v">${comissoesPorProf().find(d => d.p.id === p.id).atend}</div></div>
+      <div class="det-item"><div class="k">Comissão a pagar</div><div class="v" style="color:var(--accent-bright)">${money(comissoesPorProf().find(d => d.p.id === p.id).comissao)}</div></div>
+    </div>` : ''}`;
+  const actions = [{ label: p ? 'Salvar' : 'Cadastrar', fn: () => salvarProf(id) }];
+  if (p) actions.push({ label: 'Excluir', cls: 'btn-danger', fn: () => delProf(id) });
+  actions.push({ label: 'Cancelar', cls: 'btn-ghost', fn: closeDrawer });
+  openDrawer(p ? 'Editar profissional' : 'Novo profissional', body, actions);
+}
+function salvarProf(id) {
+  const nome = val('fPNome').trim();
+  if (!nome) { toast('Informe o nome do profissional.', '⚠️'); return; }
+  const dados = {
+    nome, apelido: val('fPApelido').trim() || firstName(nome), tel: val('fPTel').trim(),
+    comissao: Number(val('fPCom')) || 0, cor: val('fPCor') || CORES[0], ativo: val('fPAtivo') === '1'
+  };
+  if (id) Object.assign(getProf(id), dados);
+  else db.profissionais.push(Object.assign({ id: uid() }, dados));
+  saveDB(); closeDrawer(); render();
+  toast(id ? 'Profissional atualizado.' : `<b>${esc(dados.apelido)}</b> na equipe.`, '💈');
+}
+function delProf(id) {
+  const n = db.agendamentos.filter(a => a.profissionalId === id).length;
+  if (n) { toast(`Este profissional tem ${n} atendimento(s) no histórico. Marque como inativo em vez de excluir.`, '⚠️'); return; }
+  db.profissionais = db.profissionais.filter(p => p.id !== id);
+  saveDB(); closeDrawer(); render();
+  toast('Profissional excluído.', '🗑️');
+}
+
+/* ══════════════════════════════════════════════════════════════
+   Ações: Financeiro
+   ══════════════════════════════════════════════════════════════ */
+function openFinForm(id) {
+  const f = id ? db.financeiro.find(x => x.id === id) : null;
+  if (f && f.auto) { toast('Lançamento automático — altere pelo atendimento.', '🔒'); return; }
+  const body = `
+    <div class="form-grid">
+      <div><label>Tipo</label>
+        <select id="fFTipo">
+          <option value="receita"${!f || f.tipo === 'receita' ? ' selected' : ''}>Receita</option>
+          <option value="despesa"${f && f.tipo === 'despesa' ? ' selected' : ''}>Despesa</option>
+        </select>
+      </div>
+      <div><label>Data</label><input type="date" id="fFData" value="${f ? f.data : todayISO()}"></div>
+      <div class="full"><label>Descrição</label><input id="fFDesc" value="${esc(f ? f.descricao : '')}" placeholder="Ex.: Aluguel do ponto"></div>
+      <div><label>Categoria</label><input id="fFCat" value="${esc(f ? f.categoria : '')}" placeholder="Aluguel, Insumos, Produtos..."></div>
+      <div><label>Valor (R$)</label><input type="number" id="fFVal" step="0.01" min="0" value="${f ? f.valor : ''}"></div>
+      <div class="full"><label>Forma de pagamento</label>
+        <select id="fFPag">
+          ${['pix', 'dinheiro', 'cartao', 'boleto'].map(k => `<option value="${k}"${f && f.formaPag === k ? ' selected' : ''}>${PAG_LABEL[k]}</option>`).join('')}
+        </select>
+      </div>
+    </div>`;
+  const actions = [{ label: f ? 'Salvar' : 'Lançar', fn: () => salvarFin(id) }];
+  if (f) actions.push({ label: 'Excluir', cls: 'btn-danger', fn: () => delFin(id) });
+  actions.push({ label: 'Cancelar', cls: 'btn-ghost', fn: closeDrawer });
+  openDrawer(f ? 'Editar lançamento' : 'Novo lançamento', body, actions);
+}
+function salvarFin(id) {
+  const desc = val('fFDesc').trim(), valor = Number(val('fFVal'));
+  if (!desc || !(valor > 0)) { toast('Informe descrição e um valor maior que zero.', '⚠️'); return; }
+  const dados = {
+    data: val('fFData') || todayISO(), tipo: val('fFTipo'), categoria: val('fFCat').trim() || 'Geral',
+    descricao: desc, valor, formaPag: val('fFPag'), auto: false
+  };
+  if (id) Object.assign(db.financeiro.find(x => x.id === id), dados);
+  else db.financeiro.push(Object.assign({ id: uid() }, dados));
+  saveDB(); closeDrawer(); render();
+  toast(id ? 'Lançamento atualizado.' : `${dados.tipo === 'receita' ? 'Receita' : 'Despesa'} de <b>${money(valor)}</b> lançada.`, '💰');
+}
+function delFin(id) {
+  const f = db.financeiro.find(x => x.id === id);
+  if (f && f.auto) { toast('Lançamento automático — desfaça pelo atendimento.', '🔒'); return; }
+  db.financeiro = db.financeiro.filter(x => x.id !== id);
+  saveDB(); closeDrawer(); render();
+  toast('Lançamento excluído.', '🗑️');
+}
+function openMetaForm(id) {
+  const mt = id ? db.metas.find(m => m.id === id) : null;
+  const body = `
+    <div class="form-grid">
+      <div><label>Mês</label><input type="month" id="fMMes" value="${mt ? mt.mes : curMonthKey()}"></div>
+      <div><label>Meta de faturamento (R$)</label><input type="number" id="fMVal" step="100" min="0" value="${mt ? mt.valor : 12000}"></div>
+    </div>`;
+  const actions = [{ label: mt ? 'Salvar' : 'Criar meta', fn: () => salvarMeta(id) }];
+  if (mt) actions.push({ label: 'Excluir', cls: 'btn-danger', fn: () => { db.metas = db.metas.filter(m => m.id !== id); saveDB(); closeDrawer(); render(); toast('Meta excluída.', '🗑️'); } });
+  actions.push({ label: 'Cancelar', cls: 'btn-ghost', fn: closeDrawer });
+  openDrawer(mt ? 'Editar meta' : 'Nova meta', body, actions);
+}
+function salvarMeta(id) {
+  const mes = val('fMMes'), valor = Number(val('fMVal'));
+  if (!mes || !(valor > 0)) { toast('Informe o mês e um valor válido.', '⚠️'); return; }
+  const dup = db.metas.find(m => m.mes === mes && m.id !== id);
+  if (dup) { toast('Já existe uma meta para esse mês.', '⚠️'); return; }
+  if (id) Object.assign(db.metas.find(m => m.id === id), { mes, valor });
+  else db.metas.push({ id: uid(), mes, valor });
+  saveDB(); closeDrawer(); render();
+  toast(`Meta de ${fmtMonth(mes)}: <b>${money(valor)}</b>.`, '🎯');
+}
+
+/* ══════════════════════════════════════════════════════════════
+   Configurações (modal central)
+   ══════════════════════════════════════════════════════════════ */
+function openConfig() {
+  const c = db.config;
+  const body = `
+    <div class="form-grid">
+      <div><label>Como quer ser chamado</label><input id="cNome" value="${esc(c.nomeUsuario || '')}" placeholder="Tavares"></div>
+      <div><label>Nome da barbearia</label><input id="cCasa" value="${esc(c.nomeBarbearia || '')}" placeholder="Dom Tavares"></div>
+      <div><label>Abertura</label><input type="time" id="cAbre" value="${c.abertura}" step="3600"></div>
+      <div><label>Fechamento</label><input type="time" id="cFecha" value="${c.fechamento}" step="3600"></div>
+      <div><label>Dias p/ cliente inativo</label><input type="number" id="cInat" min="1" value="${c.inativoDias}"></div>
+      <div><label>Pontos por atendimento</label><input type="number" id="cPtsC" min="0" value="${c.pontosPorCorte}"></div>
+      <div class="full"><label>Pontos para resgate</label><input type="number" id="cPtsR" min="1" value="${c.pontosResgate}"></div>
+    </div>
+    <div class="det-sep"></div>
+    <span style="display:block;font-size:.66rem;text-transform:uppercase;letter-spacing:1.4px;color:var(--text-mute);font-weight:700;margin-bottom:10px">Backup dos dados</span>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <button class="mini" onclick="exportJSON()">Exportar JSON</button>
+      <button class="mini" onclick="document.getElementById('impFile').click()">Importar JSON</button>
+      <button class="mini no" onclick="limparTudo()">Apagar tudo</button>
+      <input type="file" id="impFile" accept="application/json" style="display:none" onchange="importJSON(this)">
+    </div>
+    <div style="font-size:.75rem;color:var(--text-mute);margin-top:12px;line-height:1.5">
+      Os dados ficam no ${Store.ok ? '<b>localStorage</b> deste navegador' : '<b>modo memória</b> (este navegador bloqueou o armazenamento — os dados somem ao recarregar)'}.
+      Exporte o JSON de tempos em tempos.
+    </div>
+    <div class="det-sep"></div>
+    <button class="mini no" onclick="sair()">Sair da conta</button>`;
+  openCModal('Configurações', body, [
+    { label: 'Salvar', fn: salvarConfig },
+    { label: 'Fechar', cls: 'btn-ghost', fn: closeCModal }
+  ]);
+}
+function salvarConfig() {
+  const abre = val('cAbre'), fecha = val('cFecha');
+  if (hhmmToMin(fecha) <= hhmmToMin(abre)) { toast('O fechamento precisa ser depois da abertura.', '⚠️'); return; }
+  db.config = Object.assign({}, db.config, {
+    nomeUsuario: val('cNome').trim() || CONFIG_PADRAO.nomeUsuario,
+    nomeBarbearia: val('cCasa').trim() || CONFIG_PADRAO.nomeBarbearia,
+    abertura: abre, fechamento: fecha,
+    inativoDias: Number(val('cInat')) || 45,
+    pontosPorCorte: Number(val('cPtsC')) || 0,
+    pontosResgate: Number(val('cPtsR')) || 10
+  });
+  saveDB(); closeCModal(); applyBrand(); render();
+  toast('Configurações salvas.', '⚙️');
+}
+function exportJSON() {
+  const blob = new Blob([JSON.stringify(db, null, 2)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `dom-tavares-${todayISO()}.json`;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  toast('Backup exportado.', '💾');
+}
+function importJSON(input) {
+  const file = input.files && input.files[0];
+  if (!file) return;
+  const r = new FileReader();
+  r.onload = () => {
+    try {
+      const parsed = JSON.parse(r.result);
+      if (!parsed || !parsed.profissionais) throw new Error('formato');
+      db = parsed; normalizeDB(); saveDB(); closeCModal(); render();
+      toast('Backup importado com sucesso.', '📥');
+    } catch (e) { toast('Arquivo inválido — não parece um backup do Dom Tavares.', '⚠️'); }
+  };
+  r.readAsText(file);
+  input.value = '';
+}
+function limparTudo() {
+  openCModal('Apagar tudo', `
+    <div style="font-size:.86rem;color:var(--text-dim);line-height:1.6">
+      Apaga <b style="color:var(--red)">clientes, catálogo, agenda e financeiro</b> e volta ao ponto de
+      partida (você, os dois serviços e o João Campos). Seu nome e o da barbearia são mantidos.
+      Exporte um backup antes se precisar.
+    </div>`, [
+    { label: 'Apagar tudo', cls: 'btn-danger', fn: () => {
+      const cfg = Object.assign({}, db.config);
+      db = dadosIniciais(); db.config = cfg;
+      saveDB(); closeCModal(); switchTab('painel');
+      toast('Tudo apagado — o app voltou ao ponto de partida.', '🧹');
+    } },
+    { label: 'Cancelar', cls: 'btn-ghost', fn: openConfig }
+  ]);
+}
+
+/* ══════════════════════════════════════════════════════════════
+   UI infra: tema, sidebar, fullscreen
+   ══════════════════════════════════════════════════════════════ */
+const ICO_SOL = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>';
+const ICO_LUA = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>';
+function applyTheme(theme) {
+  document.body.classList.toggle('light', theme === 'light');
+  document.getElementById('themeBtn').innerHTML = theme === 'light' ? ICO_SOL : ICO_LUA;
+  Store.set('domtavares_theme', theme);
+}
+function toggleTheme() { applyTheme(document.body.classList.contains('light') ? 'dark' : 'light'); }
+function applyBrand() {
+  const casa = nomeBarbearia();
+  document.getElementById('sbNome').textContent = casa;
+  document.getElementById('sbLogo').textContent = initials(casa) || 'DT';
+  document.title = `${casa} — Gestão da barbearia`;
+}
+function toggleSidebar() {
+  const collapsed = document.getElementById('appwin').classList.toggle('sidebar-collapsed');
+  Store.set('domtavares_sidebar', collapsed ? '1' : '0');
+}
+function toggleFullscreen() {
+  if (!document.fullscreenElement) document.documentElement.requestFullscreen().catch(() => {});
+  else document.exitFullscreen();
+}
+
+/* ─────────── Login ───────────
+   Só existe um dono. O Supabase exige e-mail pra autenticar, mas a tela mostra
+   "usuário" — o e-mail de verdade fica só aqui, nunca aparece na interface. */
+const USUARIO_LOGIN = 'joao.campos';
+const EMAIL_LOGIN = 'jabcampos97@gmail.com';
+async function fazerLogin(ev) {
+  ev.preventDefault();
+  const usuario = val('loginUsuario').trim().toLowerCase(), password = val('loginSenha');
+  const msg = document.getElementById('loginMsg'), btn = document.getElementById('loginBtn');
+  msg.textContent = ''; msg.className = 'login-msg';
+  if (!sb) { msg.textContent = 'Sem conexão com o Supabase agora. Tente de novo.'; msg.className = 'login-msg err'; return false; }
+  if (usuario !== USUARIO_LOGIN) {
+    msg.textContent = 'Usuário ou senha errados.';
+    msg.className = 'login-msg err';
+    return false;
+  }
+  btn.disabled = true; btn.textContent = 'Entrando…';
+  const { error } = await sb.auth.signInWithPassword({ email: EMAIL_LOGIN, password });
+  btn.disabled = false; btn.textContent = 'Entrar';
+  if (error) {
+    msg.textContent = error.message === 'Invalid login credentials' ? 'Usuário ou senha errados.'
+      : error.message === 'Email not confirmed' ? 'Confirme seu e-mail primeiro — chegou uma mensagem no Gmail com o link.'
+      : error.message;
+    msg.className = 'login-msg err';
+    return false;
+  }
+  entrarNoApp();
+  return false;
+}
+async function sair() {
+  if (sb) await sb.auth.signOut();
+  location.reload();
+}
+function entrarNoApp() {
+  document.body.classList.remove('locked');
+  buildNav();
+  updateSyncChip();
+  checarSupabase();
+  switchTab('painel');
+}
+
+/* ─────────── Boot ─────────── */
+function boot() {
+  loadDB();
+  applyTheme(Store.get('domtavares_theme') === 'dark' ? 'dark' : 'light');   // claro é o padrão
+  if (Store.get('domtavares_sidebar') === '1') document.getElementById('appwin').classList.add('sidebar-collapsed');
+  applyBrand();
+  document.getElementById('loginLogo').textContent = initials(nomeBarbearia()) || 'DT';
+  document.getElementById('loginNomeApp').textContent = nomeBarbearia();
+  if (!sb) { entrarNoApp(); return; }   // sem SDK, não trava o dono fora do próprio app
+  sb.auth.getSession().then(({ data }) => { if (data && data.session) entrarNoApp(); });
+}
+boot();
+</script>
+</body>
+</html>

@@ -1,0 +1,8 @@
+# Configuração local do MCP (aponta pro Supabase; não faz parte do site)
+.mcp.json
+
+# Backups exportados pelo app
+dom-tavares-*.json
+
+# Documento interno de projeto (menciona sistema de outra empresa)
+HANDOFF-dom-tavares.md
