@@ -195,6 +195,8 @@
   .sync-chip:hover { border-color: var(--accent); color: var(--text); }
   .sync-chip .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--green); flex-shrink: 0; box-shadow: 0 0 6px rgba(124,144,99,.6); }
   .sync-chip.saving .dot { background: var(--accent); animation: pulse 1s infinite; }
+  .sync-chip.erro { border-color: var(--red); color: var(--red); }
+  .sync-chip.erro .dot { background: var(--red); box-shadow: none; }
   @keyframes pulse { 50% { opacity: .3; } }
 
   /* filtros no chrome */
@@ -662,7 +664,12 @@ const CONFIG_PADRAO = {
 };
 
 /* ─────────── Helpers ─────────── */
-const uid = () => Math.random().toString(36).slice(2, 9);
+/* UUID de verdade: as tabelas do Supabase usam uuid como chave primária */
+const uid = () => (crypto.randomUUID ? crypto.randomUUID()
+  : 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
+      const r = Math.random() * 16 | 0; return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
+    }));
+const ehUUID = s => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(s || ''));
 const money = v => 'R$ ' + (Number(v) || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const moneyShort = v => 'R$ ' + (Number(v) || 0).toLocaleString('pt-BR', { maximumFractionDigits: 0 });
 const esc = s => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -764,17 +771,192 @@ function normalizeDB() {
 const appVazio = () => db.servicos.length === 0;
 function saveDB() {
   db._upd = Date.now();
-  Store.set(DB_KEY, JSON.stringify(db));
-  const chip = document.getElementById('syncChip');
-  chip.classList.add('saving');
-  setTimeout(() => chip.classList.remove('saving'), 450);
+  Store.set(DB_KEY, JSON.stringify(db));          // cache local: abre rápido e funciona sem sinal
+  agendarSync();                                   // e sobe as mudanças para o Supabase
   updateSyncChip();
 }
 function updateSyncChip() {
   const d = new Date(db._upd || Date.now());
-  const local = (Store.ok ? 'Salvo ' : 'Memória ') + `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
-  const nuvem = sbStatus === 'online' ? ' · nuvem ok' : sbStatus === 'offline' ? ' · sem nuvem' : ' · checando…';
-  document.getElementById('syncLabel').textContent = local + nuvem;
+  const hora = `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+  const txt = sbStatus !== 'online' ? `Só neste aparelho · ${hora}`
+    : syncEstado === 'enviando' ? 'Salvando na nuvem…'
+    : syncEstado === 'erro' ? 'Falha ao salvar na nuvem'
+    : `Na nuvem · ${hora}`;
+  const chip = document.getElementById('syncChip');
+  chip.classList.toggle('saving', syncEstado === 'enviando');
+  chip.classList.toggle('erro', syncEstado === 'erro');
+  document.getElementById('syncLabel').textContent = txt;
+}
+
+/* ══════════════════════════════════════════════════════════════
+   Sincronização com o Supabase
+   O app continua trabalhando em memória (objeto `db`) e gravando no
+   localStorage como cache. A cada saveDB() comparamos o `db` com uma
+   cópia do que já está na nuvem e mandamos só o que mudou — assim
+   nenhuma das dezenas de funções de CRUD precisou ser reescrita.
+   ══════════════════════════════════════════════════════════════ */
+const num = v => v === null || v === undefined || v === '' ? null : Number(v);
+const txt = v => (v === undefined || v === null || v === '') ? null : String(v);
+const hhmm = v => String(v || '').slice(0, 5);            // 'HH:MM:SS' do Postgres -> 'HH:MM'
+
+/* de/para entre o formato do app (camelCase) e o das tabelas (snake_case) */
+const MAP = {
+  profissionais: { tabela: 'profissionais',
+    toRow: o => ({ id: o.id, nome: o.nome, apelido: o.apelido || o.nome, comissao: num(o.comissao) || 0,
+                   cor: o.cor, ativo: !!o.ativo, tel: txt(o.tel) }),
+    fromRow: r => ({ id: r.id, nome: r.nome, apelido: r.apelido, comissao: Number(r.comissao) || 0,
+                     cor: r.cor, ativo: !!r.ativo, tel: r.tel || '' }) },
+  servicos: { tabela: 'servicos',
+    toRow: o => ({ id: o.id, nome: o.nome, tipo: o.tipo, preco: num(o.preco) || 0,
+                   duracao: num(o.duracao) || 0, estoque: o.tipo === 'produto' ? (num(o.estoque) || 0) : null,
+                   ativo: !!o.ativo }),
+    fromRow: r => { const o = { id: r.id, nome: r.nome, tipo: r.tipo, preco: Number(r.preco) || 0,
+                                duracao: Number(r.duracao) || 0, ativo: !!r.ativo };
+                    if (r.tipo === 'produto') o.estoque = Number(r.estoque) || 0; return o; } },
+  clientes: { tabela: 'clientes',
+    toRow: o => ({ id: o.id, nome: o.nome, tel: txt(o.tel), email: txt(o.email), nasc: txt(o.nasc),
+                   pontos: num(o.pontos) || 0, obs: txt(o.obs), cadastro: txt(o.cadastro) || todayISO() }),
+    fromRow: r => ({ id: r.id, nome: r.nome, tel: r.tel || '', email: r.email || '', nasc: r.nasc || '',
+                     pontos: Number(r.pontos) || 0, obs: r.obs || '', cadastro: r.cadastro || '' }) },
+  agendamentos: { tabela: 'agendamentos',
+    toRow: o => ({ id: o.id, cliente_id: o.clienteId, servico_id: o.servicoId, profissional_id: o.profissionalId,
+                   data: o.data, hora: o.hora, status: o.status, obs: txt(o.obs), forma_pag: txt(o.formaPag),
+                   valor: num(o.valor), comissao_pct: num(o.comissaoPct), duracao_min: num(o.duracaoMin),
+                   concluida_em: o.concluidaEm || null }),
+    fromRow: r => ({ id: r.id, clienteId: r.cliente_id, servicoId: r.servico_id, profissionalId: r.profissional_id,
+                     data: r.data, hora: hhmm(r.hora), status: r.status, obs: r.obs || '', formaPag: r.forma_pag,
+                     valor: r.valor === null ? undefined : Number(r.valor),
+                     comissaoPct: r.comissao_pct === null ? undefined : Number(r.comissao_pct),
+                     duracaoMin: r.duracao_min === null ? undefined : Number(r.duracao_min),
+                     concluidaEm: r.concluida_em || undefined }) },
+  financeiro: { tabela: 'financeiro',
+    toRow: o => ({ id: o.id, data: o.data, tipo: o.tipo, categoria: o.categoria || 'Geral', descricao: o.descricao,
+                   valor: num(o.valor) || 0, forma_pag: txt(o.formaPag), auto: !!o.auto,
+                   agendamento_id: o.agendamentoId || null }),
+    fromRow: r => ({ id: r.id, data: r.data, tipo: r.tipo, categoria: r.categoria, descricao: r.descricao,
+                     valor: Number(r.valor) || 0, formaPag: r.forma_pag, auto: !!r.auto,
+                     agendamentoId: r.agendamento_id || undefined }) },
+  metas: { tabela: 'metas',
+    toRow: o => ({ id: o.id, mes: o.mes, valor: num(o.valor) || 0 }),
+    fromRow: r => ({ id: r.id, mes: r.mes, valor: Number(r.valor) || 0 }) },
+  msgLog: { tabela: 'mensagens_enviadas',
+    toRow: o => ({ id: o.id, cliente_id: o.clienteId, segmento: o.seg, data: o.data }),
+    fromRow: r => ({ id: r.id, clienteId: r.cliente_id, seg: r.segmento, data: r.data }) }
+};
+const COLECOES = Object.keys(MAP);
+const configToRow = c => ({ id: true, nome_usuario: c.nomeUsuario, nome_barbearia: c.nomeBarbearia,
+  abertura: c.abertura, fechamento: c.fechamento, inativo_dias: num(c.inativoDias) || 45,
+  pontos_por_corte: num(c.pontosPorCorte) || 0, pontos_resgate: num(c.pontosResgate) || 10 });
+const configFromRow = r => ({ nomeUsuario: r.nome_usuario, nomeBarbearia: r.nome_barbearia,
+  abertura: hhmm(r.abertura), fechamento: hhmm(r.fechamento), inativoDias: Number(r.inativo_dias),
+  pontosPorCorte: Number(r.pontos_por_corte), pontosResgate: Number(r.pontos_resgate) });
+
+let nuvem = null;              // espelho do que já está no Supabase
+let syncEstado = 'ok';         // 'ok' | 'enviando' | 'erro'
+let syncTimer = null;
+
+function agendarSync() {
+  if (!sb || sbStatus !== 'online' || !nuvem) return;
+  clearTimeout(syncTimer);
+  syncTimer = setTimeout(sincronizar, 400);   // junta rajadas de saveDB numa só ida
+}
+
+/* manda para a nuvem apenas as linhas que mudaram desde o último espelho */
+async function sincronizar() {
+  if (!sb || sbStatus !== 'online' || !nuvem) return;
+  syncEstado = 'enviando'; updateSyncChip();
+  try {
+    for (const chave of COLECOES) {
+      const m = MAP[chave];
+      const atuais = db[chave] || [];
+      const antes = new Map((nuvem[chave] || []).map(o => [o.id, JSON.stringify(m.toRow(o))]));
+      const linhas = atuais.filter(o => antes.get(o.id) !== JSON.stringify(m.toRow(o)));
+      const idsAgora = new Set(atuais.map(o => o.id));
+      const apagar = [...antes.keys()].filter(id => !idsAgora.has(id));
+
+      if (linhas.length) {
+        const { error } = await sb.from(m.tabela).upsert(linhas.map(m.toRow));
+        if (error) throw new Error(`${m.tabela}: ${error.message}`);
+      }
+      if (apagar.length) {
+        const { error } = await sb.from(m.tabela).delete().in('id', apagar);
+        if (error) throw new Error(`${m.tabela} (apagar): ${error.message}`);
+      }
+    }
+    if (JSON.stringify(configToRow(db.config)) !== JSON.stringify(configToRow(nuvem.config || {}))) {
+      const { error } = await sb.from('configuracoes').upsert(configToRow(db.config));
+      if (error) throw new Error(`configuracoes: ${error.message}`);
+    }
+    nuvem = JSON.parse(JSON.stringify({ ...COLECOES.reduce((a, k) => (a[k] = db[k], a), {}), config: db.config }));
+    syncEstado = 'ok';
+  } catch (e) {
+    syncEstado = 'erro';
+    toast(`Não consegui salvar na nuvem: ${esc(e.message)}<br><small>Os dados estão salvos neste aparelho.</small>`, '⚠️');
+  }
+  updateSyncChip();
+}
+
+/* baixa tudo do Supabase para dentro do `db` */
+async function baixarDaNuvem() {
+  const res = await Promise.all(COLECOES.map(k => sb.from(MAP[k].tabela).select('*')));
+  const erro = res.find(r => r.error);
+  if (erro) throw new Error(erro.error.message);
+  const baixado = {};
+  COLECOES.forEach((k, i) => { baixado[k] = (res[i].data || []).map(MAP[k].fromRow); });
+  const cfg = await sb.from('configuracoes').select('*').limit(1);
+  if (cfg.error) throw new Error(cfg.error.message);
+  baixado.config = cfg.data && cfg.data[0]
+    ? Object.assign({}, CONFIG_PADRAO, configFromRow(cfg.data[0]))
+    : Object.assign({}, CONFIG_PADRAO);
+  return baixado;
+}
+
+/* IDs antigos eram curtos (não-UUID). Antes de subir, troca por UUID
+   e conserta todas as referências entre as tabelas. */
+function migrarIdsParaUUID() {
+  const mapa = new Map();
+  const novoId = velho => {
+    if (!velho) return velho;
+    if (ehUUID(velho)) return velho;
+    if (!mapa.has(velho)) mapa.set(velho, uid());
+    return mapa.get(velho);
+  };
+  COLECOES.forEach(k => (db[k] || []).forEach(o => { o.id = novoId(o.id); }));
+  (db.agendamentos || []).forEach(a => {
+    a.clienteId = novoId(a.clienteId); a.servicoId = novoId(a.servicoId); a.profissionalId = novoId(a.profissionalId);
+  });
+  (db.financeiro || []).forEach(f => { if (f.agendamentoId) f.agendamentoId = novoId(f.agendamentoId); });
+  (db.msgLog || []).forEach(l => { l.clienteId = novoId(l.clienteId); });
+  return mapa.size;
+}
+
+/* Decide quem manda na hora de entrar: nuvem cheia vence; nuvem vazia recebe o local. */
+async function conectarNuvem() {
+  if (!sb || sbStatus !== 'online') return;
+  try {
+    const remoto = await baixarDaNuvem();
+    const temNaNuvem = COLECOES.some(k => (remoto[k] || []).length);
+    const temLocal = COLECOES.some(k => (db[k] || []).length);
+    if (temNaNuvem) {
+      db = Object.assign(remoto, { _upd: Date.now() });
+      normalizeDB();
+      nuvem = JSON.parse(JSON.stringify({ ...COLECOES.reduce((a, k) => (a[k] = db[k], a), {}), config: db.config }));
+      Store.set(DB_KEY, JSON.stringify(db));
+    } else if (temLocal) {
+      const trocados = migrarIdsParaUUID();
+      nuvem = { config: {} }; COLECOES.forEach(k => (nuvem[k] = []));
+      await sincronizar();
+      if (syncEstado === 'ok') toast(`Seus dados foram para a nuvem${trocados ? '' : ''} — agora abrem em qualquer aparelho.`, '☁️');
+    } else {
+      nuvem = { config: {} }; COLECOES.forEach(k => (nuvem[k] = []));
+      await sincronizar();
+    }
+  } catch (e) {
+    sbStatus = 'offline';
+    toast(`Não consegui ler a nuvem: ${esc(e.message)}<br><small>Trabalhando só neste aparelho.</small>`, '📴');
+  }
+  updateSyncChip();
+  render();
 }
 
 /* ─────────── Navegação ─────────── */
@@ -884,10 +1066,16 @@ function renderCadastros() {
 /* ─────────── Métricas ─────────── */
 /* barbearia de um homem só: sem sócio nem comissionado, a aba de comissões só polui a tela */
 const equipeSimples = () => db.profissionais.filter(p => Number(p.comissao) > 0).length === 0;
+/* Valor do atendimento: depois de concluído vale o preço congelado na conclusão,
+   nunca o preço atual da tabela — senão reajustar um serviço reescreveria o passado. */
+function valorDe(ag) {
+  return ag && ag.valor !== undefined && ag.valor !== null ? Number(ag.valor) : precoSrv(ag.servicoId);
+}
 function comissaoDe(ag) {
-  const p = getProf(ag.profissionalId), s = getSrv(ag.servicoId);
-  if (!p || !s) return 0;
-  return s.preco * (Number(p.comissao) || 0) / 100;
+  const pct = ag && ag.comissaoPct !== undefined && ag.comissaoPct !== null
+    ? Number(ag.comissaoPct)
+    : Number((getProf(ag.profissionalId) || {}).comissao) || 0;
+  return valorDe(ag) * pct / 100;
 }
 function metrics(mk) {
   mk = mk || curMonthKey();
@@ -895,7 +1083,7 @@ function metrics(mk) {
   const receita = somaBy(fin.filter(f => f.tipo === 'receita'), f => f.valor);
   const despesa = somaBy(fin.filter(f => f.tipo === 'despesa'), f => f.valor);
   const conclMes = db.agendamentos.filter(a => a.status === 'concluido' && monthKey(a.data) === mk);
-  const ticket = conclMes.length ? somaBy(conclMes, a => precoSrv(a.servicoId)) / conclMes.length : 0;
+  const ticket = conclMes.length ? somaBy(conclMes, a => valorDe(a)) / conclMes.length : 0;
   const hoje = db.agendamentos.filter(a => a.data === todayISO() && a.status !== 'cancelado');
   const comissoes = somaBy(conclMes, comissaoDe);
   const meta = db.metas.find(m => m.mes === mk);
@@ -919,7 +1107,7 @@ function comissoesPorProf(mk) {
   mk = mk || curMonthKey();
   return db.profissionais.map(p => {
     const ags = db.agendamentos.filter(a => a.profissionalId === p.id && a.status === 'concluido' && monthKey(a.data) === mk);
-    const fat = somaBy(ags, a => precoSrv(a.servicoId));
+    const fat = somaBy(ags, a => valorDe(a));
     return { p, atend: ags.length, fat, comissao: fat * (Number(p.comissao) || 0) / 100 };
   });
 }
@@ -1052,7 +1240,7 @@ function renderPainel() {
             <div class="lt">${esc(nomeCli(a.clienteId))} ${stTag(a.status)}</div>
             <div class="lm">${fmtDateLong(a.data)} · ${a.hora} · ${esc(nomeSrv(a.servicoId))} · ${esc(nomeProf(a.profissionalId))}</div>
           </div>
-          <div class="lend">${money(precoSrv(a.servicoId))}</div>
+          <div class="lend">${money(valorDe(a))}</div>
         </div>`).join('') : `<div class="empty-soft">Nenhum agendamento futuro.</div>`}
     </div>
     <div class="p-block">
@@ -1207,7 +1395,7 @@ function diaView() {
             <div class="lt">${a.hora} · ${esc(nomeCli(a.clienteId))} ${stTag(a.status)}</div>
             <div class="lm">${esc(nomeSrv(a.servicoId))} · ${esc(nomeProf(a.profissionalId))}</div>
           </div>
-          <div class="lend">${money(precoSrv(a.servicoId))}</div>
+          <div class="lend">${money(valorDe(a))}</div>
         </div>`).join('') : `<div class="empty-soft">Nenhum atendimento neste dia. Toque no <b>+</b> pra agendar.</div>`}
     </div>
   </div>`;
@@ -1277,7 +1465,7 @@ function agLista() {
           <td>${fmtDateLong(a.data)}</td><td><b>${a.hora}</b></td>
           <td>${esc(nomeCli(a.clienteId))}</td><td>${esc(nomeSrv(a.servicoId))}</td>
           <td><span style="color:${corProf(a.profissionalId)};font-weight:700">${esc(nomeProf(a.profissionalId))}</span></td>
-          <td>${money(precoSrv(a.servicoId))}</td><td>${stTag(a.status)}</td>
+          <td>${money(valorDe(a))}</td><td>${stTag(a.status)}</td>
         </tr>`).join('') : `<tr><td colspan="7"><div class="empty-soft">Nenhum agendamento nesta semana.</div></td></tr>`}
       </tbody>
     </table></div>
@@ -1676,10 +1864,10 @@ function finProj() {
   const diaAtual = hoje.getDate();
   const agendado = somaBy(
     db.agendamentos.filter(a => monthKey(a.data) === mk && a.data >= todayISO() && (a.status === 'agendado' || a.status === 'confirmado')),
-    a => precoSrv(a.servicoId));
+    a => valorDe(a));
   const confirmado = somaBy(
     db.agendamentos.filter(a => monthKey(a.data) === mk && a.data >= todayISO() && a.status === 'confirmado'),
-    a => precoSrv(a.servicoId));
+    a => valorDe(a));
   const ritmo = diaAtual > 0 ? m.receita / diaAtual : 0;
   const projRitmo = ritmo * diasNoMes;
   const projCarteira = m.receita + agendado;
@@ -1879,9 +2067,9 @@ function openApptDetail(id) {
       <div class="det-item"><div class="k">Data</div><div class="v">${fmtDateLong(a.data)}</div></div>
       <div class="det-item"><div class="k">Hora</div><div class="v">${a.hora}${s.duracao ? ` · ${s.duracao} min` : ''}</div></div>
       <div class="det-item"><div class="k">Serviço</div><div class="v">${esc(s.nome || '—')}</div></div>
-      <div class="det-item"><div class="k">Valor</div><div class="v">${money(s.preco || 0)}</div></div>
+      <div class="det-item"><div class="k">Valor</div><div class="v">${money(valorDe(a))}</div></div>
       <div class="det-item"><div class="k">Profissional</div><div class="v" style="color:${p.cor || 'var(--accent)'}">${esc(p.apelido || p.nome || '—')}</div></div>
-      <div class="det-item"><div class="k">Comissão</div><div class="v">${money(comissaoDe(a))} <span style="font-size:.7rem;color:var(--text-mute)">(${p.comissao || 0}%)</span></div></div>
+      <div class="det-item"><div class="k">Comissão</div><div class="v">${money(comissaoDe(a))} <span style="font-size:.7rem;color:var(--text-mute)">(${a.comissaoPct != null ? a.comissaoPct : (p.comissao || 0)}%)</span></div></div>
       ${a.formaPag ? `<div class="det-item"><div class="k">Forma de pagamento</div><div class="v">${PAG_LABEL[a.formaPag]}</div></div>` : ''}
     </div>
     ${a.obs ? `<div class="det-item" style="margin-bottom:18px"><div class="k">Observações</div><div class="v" style="font-weight:500;font-size:.84rem">${esc(a.obs)}</div></div>` : ''}
@@ -1912,6 +2100,7 @@ function setStatus(id, st) {
     db.financeiro = db.financeiro.filter(f => f.agendamentoId !== id);
     const c = getCli(a.clienteId);
     if (c) c.pontos = Math.max(0, (c.pontos || 0) - (Number(db.config.pontosPorCorte) || 0));
+    a.valor = undefined; a.comissaoPct = undefined; a.duracaoMin = undefined; a.concluidaEm = undefined;
   }
   a.status = st;
   saveDB(); render(); openApptDetail(id);
@@ -1936,6 +2125,13 @@ function concluir(id) {
     { label: 'Confirmar', fn: () => {
       const forma = val('fPag');
       a.status = 'concluido'; a.formaPag = forma;
+      /* congela preço, comissão e duração do dia do atendimento: mudar a tabela
+         de preços depois não pode reescrever o faturamento do passado */
+      const prof = getProf(a.profissionalId) || {};
+      a.valor = s.preco;
+      a.comissaoPct = Number(prof.comissao) || 0;
+      a.duracaoMin = Number(s.duracao) || 0;
+      a.concluidaEm = new Date().toISOString();
       if (forma !== 'pacote') {
         db.financeiro.push({
           id: uid(), data: a.data, tipo: 'receita', categoria: s.tipo === 'produto' ? 'Produtos' : 'Atendimento',
@@ -1999,7 +2195,7 @@ function openClienteDetail(id) {
   const c = getCli(id);
   if (!c) return;
   const hist = db.agendamentos.filter(a => a.clienteId === id).sort((a, b) => (b.data + b.hora).localeCompare(a.data + a.hora));
-  const gasto = somaBy(hist.filter(a => a.status === 'concluido'), a => precoSrv(a.servicoId));
+  const gasto = somaBy(hist.filter(a => a.status === 'concluido'), a => valorDe(a));
   const resgate = Number(db.config.pontosResgate) || 10;
   const ult = ultimaVisita(id);
   const msg = `Olá ${firstName(c.nome)}! Aqui é da Barbearia Dom Tavares. Tudo certo? Quer marcar um horário?`;
@@ -2030,7 +2226,7 @@ function openClienteDetail(id) {
           <div class="lt">${esc(nomeSrv(a.servicoId))} ${stTag(a.status)}</div>
           <div class="lm">${fmtDateLong(a.data)} · ${a.hora} · ${esc(nomeProf(a.profissionalId))}</div>
         </div>
-        <div class="lend">${money(precoSrv(a.servicoId))}</div>
+        <div class="lend">${money(valorDe(a))}</div>
       </div>`).join('') : `<div class="empty-soft">Nenhum atendimento registrado.</div>`}`;
   openDrawer('Cliente', body, [
     { label: 'Agendar', fn: () => openApptForm() },
@@ -2367,12 +2563,14 @@ async function sair() {
   if (sb) await sb.auth.signOut();
   location.reload();
 }
-function entrarNoApp() {
+async function entrarNoApp() {
   document.body.classList.remove('locked');
   buildNav();
   updateSyncChip();
-  checarSupabase();
-  switchTab('painel');
+  switchTab('painel');                 // mostra o cache local na hora, sem esperar a rede
+  await checarSupabase();
+  await conectarNuvem();               // depois troca pelos dados da nuvem
+  applyBrand();
 }
 
 /* ─────────── Boot ─────────── */
