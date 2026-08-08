@@ -528,14 +528,23 @@
   <div class="login-card">
     <div class="lc-logo" id="loginLogo">DT</div>
     <h1 id="loginNomeApp">Dom Tavares</h1>
-    <div class="sub">Entre para acessar sua barbearia</div>
+    <div class="sub" id="loginSub">Entre para acessar sua barbearia</div>
     <form id="loginForm" onsubmit="return fazerLogin(event)">
       <label>Usuário</label>
-      <input type="text" id="loginUsuario" autocomplete="username" placeholder="joao.campos" required>
+      <input type="text" id="loginUsuario" autocomplete="username" placeholder="tavares" required>
       <label>Senha</label>
       <input type="password" id="loginSenha" autocomplete="current-password" required>
       <button class="btn" type="submit" id="loginBtn">Entrar</button>
       <div class="login-msg" id="loginMsg"></div>
+    </form>
+    <!-- primeiro acesso: a senha provisória tem que virar uma senha só dele -->
+    <form id="senhaForm" style="display:none" onsubmit="return criarSenha(event)">
+      <label>Nova senha</label>
+      <input type="password" id="novaSenha" autocomplete="new-password" required>
+      <label>Repita a nova senha</label>
+      <input type="password" id="novaSenha2" autocomplete="new-password" required>
+      <button class="btn" type="submit" id="senhaBtn">Salvar e entrar</button>
+      <div class="login-msg" id="senhaMsg"></div>
     </form>
   </div>
 </div>
@@ -2443,7 +2452,10 @@ function openConfig() {
       Exporte o JSON de tempos em tempos.
     </div>
     <div class="det-sep"></div>
-    <button class="mini no" onclick="sair()">Sair da conta</button>`;
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <button class="mini" onclick="abrirTrocaSenha()">Trocar senha</button>
+      <button class="mini no" onclick="sair()">Sair da conta</button>
+    </div>`;
   openCModal('Configurações', body, [
     { label: 'Salvar', fn: salvarConfig },
     { label: 'Fechar', cls: 'btn-ghost', fn: closeCModal }
@@ -2531,37 +2543,88 @@ function toggleFullscreen() {
 }
 
 /* ─────────── Login ───────────
-   Só existe um dono. O Supabase exige e-mail pra autenticar, mas a tela mostra
-   "usuário" — o e-mail de verdade fica só aqui, nunca aparece na interface. */
-const USUARIO_LOGIN = 'joao.campos';
-const EMAIL_LOGIN = 'jabcampos97@gmail.com';
+   O Supabase autentica por e-mail, mas a tela pede "usuário" — o e-mail
+   fica só aqui e nunca aparece na interface. */
+const USUARIOS = {
+  'tavares': 'jabcampos97+tavares@gmail.com',   // o dono da barbearia
+  'joao.campos': 'jabcampos97@gmail.com'        // administrador
+};
+/* enquanto o usuário não trocar a senha provisória, o app não abre */
+const precisaCriarSenha = u => !(u && u.user_metadata && u.user_metadata.senha_criada);
+
 async function fazerLogin(ev) {
   ev.preventDefault();
   const usuario = val('loginUsuario').trim().toLowerCase(), password = val('loginSenha');
   const msg = document.getElementById('loginMsg'), btn = document.getElementById('loginBtn');
   msg.textContent = ''; msg.className = 'login-msg';
-  if (!sb) { msg.textContent = 'Sem conexão com o Supabase agora. Tente de novo.'; msg.className = 'login-msg err'; return false; }
-  if (usuario !== USUARIO_LOGIN) {
+  if (!sb) { msg.textContent = 'Sem conexão agora. Tente de novo.'; msg.className = 'login-msg err'; return false; }
+  const email = USUARIOS[usuario];
+  if (!email) {
     msg.textContent = 'Usuário ou senha errados.';
     msg.className = 'login-msg err';
     return false;
   }
   btn.disabled = true; btn.textContent = 'Entrando…';
-  const { error } = await sb.auth.signInWithPassword({ email: EMAIL_LOGIN, password });
+  const { data, error } = await sb.auth.signInWithPassword({ email, password });
   btn.disabled = false; btn.textContent = 'Entrar';
   if (error) {
     msg.textContent = error.message === 'Invalid login credentials' ? 'Usuário ou senha errados.'
-      : error.message === 'Email not confirmed' ? 'Confirme seu e-mail primeiro — chegou uma mensagem no Gmail com o link.'
+      : error.message === 'Email not confirmed' ? 'Esta conta ainda não foi liberada. Fale com o administrador.'
       : error.message;
     msg.className = 'login-msg err';
     return false;
   }
+  if (precisaCriarSenha(data.user)) { mostrarCriarSenha(); return false; }
   entrarNoApp();
+  return false;
+}
+function mostrarCriarSenha() {
+  document.getElementById('loginForm').style.display = 'none';
+  document.getElementById('senhaForm').style.display = '';
+  document.getElementById('loginSub').textContent = 'Primeiro acesso — crie uma senha só sua';
+  const el = document.getElementById('novaSenha'); if (el) el.focus();
+}
+async function criarSenha(ev) {
+  ev.preventDefault();
+  const s1 = val('novaSenha'), s2 = val('novaSenha2');
+  const msg = document.getElementById('senhaMsg'), btn = document.getElementById('senhaBtn');
+  msg.textContent = ''; msg.className = 'login-msg';
+  const erro = t => { msg.textContent = t; msg.className = 'login-msg err'; };
+  if (s1.length < 6) { erro('A senha precisa ter pelo menos 6 caracteres.'); return false; }
+  if (s1 !== s2) { erro('As duas senhas não são iguais.'); return false; }
+  if (s1 === '12345678') { erro('Escolha uma senha diferente da provisória.'); return false; }
+  btn.disabled = true; btn.textContent = 'Salvando…';
+  const { error } = await sb.auth.updateUser({ password: s1, data: { senha_criada: true } });
+  btn.disabled = false; btn.textContent = 'Salvar e entrar';
+  if (error) { erro(error.message); return false; }
+  document.getElementById('senhaForm').style.display = 'none';
+  document.getElementById('loginForm').style.display = '';
+  entrarNoApp();
+  toast('Senha criada. Use ela nos próximos acessos.', '🔒');
   return false;
 }
 async function sair() {
   if (sb) await sb.auth.signOut();
   location.reload();
+}
+function abrirTrocaSenha() {
+  openCModal('Trocar senha', `
+    <div class="form-grid">
+      <div class="full"><label>Nova senha</label><input type="password" id="tsSenha" autocomplete="new-password"></div>
+      <div class="full"><label>Repita a nova senha</label><input type="password" id="tsSenha2" autocomplete="new-password"></div>
+    </div>
+    <div style="font-size:.78rem;color:var(--text-mute);margin-top:12px">Mínimo de 6 caracteres. Você continua logado depois de trocar.</div>`, [
+    { label: 'Salvar', fn: async () => {
+      const s1 = val('tsSenha'), s2 = val('tsSenha2');
+      if (s1.length < 6) { toast('A senha precisa ter pelo menos 6 caracteres.', '⚠️'); return; }
+      if (s1 !== s2) { toast('As duas senhas não são iguais.', '⚠️'); return; }
+      const { error } = await sb.auth.updateUser({ password: s1, data: { senha_criada: true } });
+      if (error) { toast(`Não consegui trocar: ${esc(error.message)}`, '⚠️'); return; }
+      closeCModal();
+      toast('Senha trocada.', '🔒');
+    } },
+    { label: 'Cancelar', cls: 'btn-ghost', fn: openConfig }
+  ]);
 }
 async function entrarNoApp() {
   document.body.classList.remove('locked');
@@ -2582,7 +2645,11 @@ function boot() {
   document.getElementById('loginLogo').textContent = initials(nomeBarbearia()) || 'DT';
   document.getElementById('loginNomeApp').textContent = nomeBarbearia();
   if (!sb) { entrarNoApp(); return; }   // sem SDK, não trava o dono fora do próprio app
-  sb.auth.getSession().then(({ data }) => { if (data && data.session) entrarNoApp(); });
+  sb.auth.getSession().then(({ data }) => {
+    if (!data || !data.session) return;                          // segue na tela de login
+    if (precisaCriarSenha(data.session.user)) mostrarCriarSenha();
+    else entrarNoApp();
+  });
 }
 boot();
 </script>
