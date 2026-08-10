@@ -368,6 +368,88 @@
   .cal-legend-item { display: flex; align-items: center; gap: 7px; font-size: .72rem; color: var(--text-dim); }
   .cal-legend-dot { width: 10px; height: 10px; border-radius: 3px; }
 
+  /* ── seletor de período: Hoje / Esta semana / Este mês ── */
+  .periodo-seg { display: inline-flex; background: var(--surface-2); border: 1px solid var(--border);
+    border-radius: 99px; padding: 3px; gap: 2px; }
+  .periodo-seg button { background: none; border: none; color: var(--text-dim); padding: 8px 16px;
+    border-radius: 99px; font-size: .8rem; cursor: pointer; font-family: inherit; font-weight: 600; white-space: nowrap; }
+  .periodo-seg button:hover { color: var(--text); }
+  .periodo-seg button.active { background: var(--accent); color: var(--on-accent); }
+  .periodo-nav { display: flex; align-items: center; gap: 10px; margin: 14px 0 4px; flex-wrap: wrap; }
+  .periodo-nav .pn-titulo { font-size: .92rem; font-weight: 700; text-transform: capitalize; flex: 1; min-width: 140px; }
+
+  /* ── cartão compacto: ícone à esquerda, número à direita (cabe 2 por linha no celular) ── */
+  .stat-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+  @media (max-width: 900px) { .stat-grid { grid-template-columns: repeat(2, 1fr); } }
+  .stat {
+    display: flex; align-items: flex-start; gap: 12px; padding: 14px;
+    background: var(--surface); border: 1px solid var(--border); border-radius: 14px; box-shadow: var(--shadow-sm);
+    min-width: 0;
+  }
+  body:not(.light) .stat { background: rgba(255,255,255,.03); }
+  .stat .st-ico { width: 38px; height: 38px; border-radius: 11px; flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center; background: var(--accent-soft); color: var(--accent); }
+  .stat .st-ico svg { width: 19px; height: 19px; }
+  .stat.neg .st-ico { background: var(--red-soft); color: var(--red); }
+  .stat.pos .st-ico { background: var(--green-soft); color: var(--green); }
+  .stat .st-txt { min-width: 0; display: flex; flex-direction: column; }
+  .stat .st-lbl { font-size: .7rem; color: var(--text-dim); font-weight: 600; }
+  /* valores em reais são largos; o cartão tem ~110px úteis no celular */
+  .stat .st-num { font-size: 1.05rem; font-weight: 800; letter-spacing: -.5px; margin-top: 1px;
+    white-space: nowrap; font-variant-numeric: tabular-nums; }
+  @media (max-width: 400px) { .stat { padding: 12px; gap: 9px; } .stat .st-num { font-size: .98rem; }
+    .stat .st-ico { width: 32px; height: 32px; border-radius: 9px; } .stat .st-ico svg { width: 16px; height: 16px; } }
+  .stat .st-hint { font-size: .64rem; color: var(--text-mute); margin-top: 2px; line-height: 1.3; }
+
+  /* ── bloco de análise: título + a frase que explica o número ── */
+  .analise { background: var(--surface); border: 1px solid var(--border); border-radius: 16px; padding: 16px 18px 18px; min-width: 0; }
+  body:not(.light) .analise { background: rgba(255,255,255,.022); }
+  .analise .an-tit { font-size: .86rem; font-weight: 700; }
+  .analise .an-hist { font-size: .76rem; color: var(--text-dim); line-height: 1.5; margin: 4px 0 14px; }
+  .analise .an-hist b { color: var(--text); font-weight: 700; }
+
+  /* ── barras horizontais de comparação (por dia, por semana, por serviço) ── */
+  .barra { display: flex; flex-direction: column; gap: 4px; margin-bottom: 12px; }
+  .barra:last-child { margin-bottom: 0; }
+  .barra .ba-top { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; font-size: .78rem; }
+  .barra .ba-rot { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .barra .ba-val { font-size: .72rem; color: var(--text-dim); flex-shrink: 0; }
+  .barra .ba-track { height: 8px; background: var(--surface-3); border-radius: 99px; overflow: hidden; }
+  .barra .ba-fill { height: 100%; border-radius: 99px; background: var(--accent); transition: width .5s ease; }
+  .barra.destaque .ba-rot { color: var(--accent); }
+  .barra.vazio .ba-fill { background: var(--border-light); }
+
+  /* ── linha do tempo do dia ── */
+  .tl { position: relative; padding-left: 62px; }
+  .tl-item { position: relative; padding: 0 0 14px; }
+  .tl-item:last-child { padding-bottom: 0; }
+  .tl-item .tl-hora { position: absolute; left: -62px; top: 12px; width: 48px; text-align: right;
+    font-size: .78rem; font-weight: 700; color: var(--text-dim); }
+  .tl-item .tl-ponto { position: absolute; left: -8px; top: 17px; width: 9px; height: 9px; border-radius: 50%;
+    background: var(--accent); box-shadow: 0 0 0 3px var(--bg); z-index: 1; }
+  .tl-item::before { content: ''; position: absolute; left: -4px; top: 17px; bottom: -4px; width: 1px; background: var(--border); }
+  .tl-item:last-child::before { display: none; }
+  .tl-card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 12px 14px;
+    cursor: pointer; transition: border-color .15s, transform .15s; }
+  body:not(.light) .tl-card { background: rgba(255,255,255,.03); }
+  .tl-card:hover { border-color: var(--accent); transform: translateY(-1px); }
+  .tl-card .tc-top { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .tl-card .tc-nome { font-size: .9rem; font-weight: 700; }
+  .tl-card .tc-sub { font-size: .74rem; color: var(--text-dim); margin-top: 3px; }
+  .tl-card .tc-acoes { display: flex; gap: 7px; margin-top: 10px; flex-wrap: wrap; }
+  .tl-item.feito .tl-ponto { background: var(--st-done); }
+  .tl-item.feito .tl-card { opacity: .82; }
+  .tl-item.perdido .tl-ponto { background: var(--st-late); }
+  .tl-item.perdido .tl-card { opacity: .6; }
+
+  /* ── valores escondíveis (abrir o app na frente do cliente) ── */
+  body.ocultar-valores .valor-oculto { color: transparent !important; position: relative; user-select: none; }
+  body.ocultar-valores .valor-oculto::after {
+    content: '•••••'; position: absolute; left: 0; right: 0; top: 0; bottom: 0;
+    color: var(--text-mute); letter-spacing: 2px; display: flex; align-items: center;
+  }
+  .stat .st-num.valor-oculto::after { justify-content: flex-start; }
+
   /* tira de dias da view "Dia" — o padrão no celular */
   .dia-strip { display: flex; gap: 6px; margin: 14px 0 2px; overflow-x: auto; padding-bottom: 2px; }
   .dia-chip {
@@ -586,6 +668,7 @@
           </button>
           <div class="filtros-panel" id="filtrosPanel"></div>
         </div>
+        <button class="btn-icon" id="olhoBtn" onclick="toggleValores()" title="Mostrar/esconder valores"></button>
         <button class="btn-icon" id="themeBtn" onclick="toggleTheme()" title="Alternar tema"></button>
         <button class="btn-icon" data-mobile-hide onclick="toggleFullscreen()" title="Tela cheia">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v3M21 8V5a2 2 0 0 0-2-2h-3M3 16v3a2 2 0 0 0 2 2h3M16 21h3a2 2 0 0 0 2-2v-3"/></svg>
@@ -900,7 +983,24 @@ async function sincronizar() {
 
       if (linhas.length) {
         const { error } = await sb.from(m.tabela).upsert(linhas.map(m.toRow));
-        if (error) throw error;
+        if (error) {
+          if (!ehEstruturaFaltando(error)) throw error;
+          /* uma linha recusada não pode travar a coleção toda: reenvia uma a uma
+             para que só a problemática fique de fora */
+          let algumaFalhou = null;
+          const ok = [];
+          for (const o of linhas) {
+            const res = await sb.from(m.tabela).upsert(m.toRow(o));
+            if (res.error) algumaFalhou = res.error; else ok.push(o);
+          }
+          if (algumaFalhou) {
+            /* marca como sincronizado só o que passou, para tentar o resto depois */
+            const passou = new Set(ok.map(o => o.id));
+            nuvem[chave] = (db[chave] || []).filter(o => passou.has(o.id) || antes.has(o.id))
+              .map(o => JSON.parse(JSON.stringify(o)));
+            throw algumaFalhou;
+          }
+        }
       }
       if (apagar.length) {
         const { error } = await sb.from(m.tabela).delete().in('id', apagar);
@@ -1014,16 +1114,19 @@ const ICO = {
   msg: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.4 8.4 0 0 1-9 8.4 8.5 8.5 0 0 1-3.8-.9L3 20.5l1.6-4.9A8.4 8.4 0 0 1 3.6 11 8.4 8.4 0 0 1 12 2.6a8.4 8.4 0 0 1 9 8.9z"/></svg>',
   box: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.3 7 12 12 20.7 7"/><line x1="12" y1="22" x2="12" y2="12"/></svg>',
   mais: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg>',
-  cadastros: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="8" y="2" width="8" height="4" rx="1"/><path d="M9 4H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2h-3"/><path d="M9 12l2 2 4-4"/></svg>'
+  cadastros: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="8" y="2" width="8" height="4" rx="1"/><path d="M9 4H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2h-3"/><path d="M9 12l2 2 4-4"/></svg>',
+  ajustes: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></svg>',
+  olho: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>',
+  olhoOff: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>'
 };
-/* primary: aparece nos 4 slots fixos da barra inferior no celular; o resto cai dentro de "Mais".
-   Cadastros junta Clientes/Serviços/Equipe/Metas — tudo que é "configurar", separado do dia a dia. */
+/* Módulos: o dia a dia (Atendimentos/Clientes) separado do dinheiro (Financeiro)
+   e da configuração do negócio (Ajustes). Tudo a no máximo dois toques. */
 const VIEWS = [
-  { id: 'painel', label: 'Visão Geral', sub: 'Painel da barbearia', icon: ICO.painel, primary: true },
-  { id: 'agenda', label: 'Agenda', sub: 'Atendimentos do dia', icon: ICO.agenda, primary: true },
-  { id: 'cadastros', label: 'Cadastros', sub: 'Clientes, produtos, equipe e metas', icon: ICO.cadastros, primary: true },
-  { id: 'financeiro', label: 'Financeiro', sub: 'Receitas e despesas', icon: ICO.financeiro, primary: true },
-  { id: 'mensagens', label: 'Mensagens', sub: 'Disparo de WhatsApp', icon: ICO.msg }
+  { id: 'painel', label: 'Início', sub: 'O retrato da barbearia', icon: ICO.painel, primary: true },
+  { id: 'atendimentos', label: 'Atendimentos', sub: 'Hoje, semana e mês', icon: ICO.agenda, primary: true },
+  { id: 'clientes', label: 'Clientes', sub: 'Cadastro e WhatsApp', icon: ICO.clientes, primary: true },
+  { id: 'financeiro', label: 'Financeiro', sub: 'Dinheiro entrando e saindo', icon: ICO.financeiro, primary: true },
+  { id: 'ajustes', label: 'Ajustes', sub: 'Catálogo, equipe e preferências', icon: ICO.ajustes, primary: true }
 ];
 let activeTab = 'painel';
 
@@ -1034,29 +1137,11 @@ function buildNav() {
     </button>`).join('');
   buildBottomNav();
 }
-const secundarios = () => VIEWS.filter(v => !v.primary);
 function buildBottomNav() {
-  const primarios = VIEWS.filter(v => v.primary);
-  const emMais = secundarios().some(v => v.id === activeTab);
-  document.getElementById('bottomNav').innerHTML = primarios.map(v => `
+  document.getElementById('bottomNav').innerHTML = VIEWS.map(v => `
     <button class="tab-btn${v.id === activeTab ? ' active' : ''}" data-tab="${v.id}" onclick="switchTab('${v.id}')">
-      ${v.icon}<span>${esc(v.label.replace('Visão Geral', 'Início'))}</span>
-    </button>`).join('') + `
-    <button class="tab-btn${emMais ? ' active' : ''}" onclick="abrirMais()">
-      ${ICO.mais}<span>Mais</span>
-    </button>`;
-}
-function abrirMais() {
-  const body = secundarios().map(v => `
-    <div class="li clickable" onclick="closeCModal();switchTab('${v.id}')">
-      <div class="ava" style="color:var(--accent)">${v.icon}</div>
-      <div class="lbody"><div class="lt">${esc(v.label)}</div><div class="lm">${esc(v.sub)}</div></div>
-    </div>`).join('') + `
-    <div class="li clickable" onclick="closeCModal();openConfig()">
-      <div class="ava">⚙️</div>
-      <div class="lbody"><div class="lt">Configurações</div><div class="lm">Nome, horário, fidelidade</div></div>
-    </div>`;
-  openCModal('Mais', body, [{ label: 'Fechar', cls: 'btn-ghost', fn: closeCModal }]);
+      ${v.icon}<span>${esc(v.label)}</span>
+    </button>`).join('');
 }
 function switchTab(id) {
   activeTab = id;
@@ -1064,7 +1149,7 @@ function switchTab(id) {
   const v = VIEWS.find(x => x.id === id) || VIEWS[0];
   document.getElementById('chromeTitle').textContent = v.label;
   document.getElementById('chromeSub').textContent = v.sub;
-  document.getElementById('filtrosWrap').style.display = id === 'agenda' ? '' : 'none';
+  document.getElementById('filtrosWrap').style.display = id === 'atendimentos' ? '' : 'none';
   document.getElementById('filtrosPanel').classList.remove('open');
   document.getElementById('main').scrollTop = 0;
   buildBottomNav();
@@ -1074,34 +1159,55 @@ function updateBadges() {
   const hoje = db.agendamentos.filter(a => a.data === todayISO() && a.status !== 'cancelado').length;
   const baixo = db.servicos.filter(s => s.tipo === 'produto' && s.ativo && (s.estoque || 0) <= 3).length;
   const set = (k, n) => { const el = document.getElementById('cnt-' + k); if (el) el.textContent = n > 0 ? n : ''; };
-  set('agenda', hoje); set('cadastros', baixo);
+  set('atendimentos', hoje); set('ajustes', baixo);
 }
 function render() {
   updateBadges();
   const el = document.getElementById('main');
   if (activeTab === 'painel') el.innerHTML = renderPainel();
-  else if (activeTab === 'agenda') el.innerHTML = renderAgenda();
-  else if (activeTab === 'cadastros') el.innerHTML = renderCadastros();
-  else if (activeTab === 'mensagens') el.innerHTML = renderMensagens();
+  else if (activeTab === 'atendimentos') el.innerHTML = renderAtendimentos();
+  else if (activeTab === 'clientes') el.innerHTML = renderModuloClientes();
   else if (activeTab === 'financeiro') el.innerHTML = renderFinanceiro();
-  if (activeTab === 'agenda') buildFiltrosPanel();
+  else if (activeTab === 'ajustes') el.innerHTML = renderAjustes();
+  if (activeTab === 'atendimentos') buildFiltrosPanel();
 }
 
-/* ─────────── Cadastros: Clientes / Serviços / Equipe / Metas num só lugar ─────────── */
-let cadTab = 'clientes';
-function setCadTab(t) { cadTab = t; render(); }
-function irParaMetas() { cadTab = 'metas'; switchTab('cadastros'); }
-function renderCadastros() {
+/* ─────────── Módulo Clientes: cadastro + disparo de WhatsApp ─────────── */
+let cliTab = 'lista';
+function setCliTab(t) { cliTab = t; render(); }
+function renderModuloClientes() {
   return `
   <div class="modal-tabs">
-    <button class="mtab ${cadTab === 'clientes' ? 'active' : ''}" onclick="setCadTab('clientes')">Clientes</button>
-    <button class="mtab ${cadTab === 'servicos' ? 'active' : ''}" onclick="setCadTab('servicos')">Produtos</button>
-    <button class="mtab ${cadTab === 'equipe' ? 'active' : ''}" onclick="setCadTab('equipe')">Equipe</button>
-    <button class="mtab ${cadTab === 'custos' ? 'active' : ''}" onclick="setCadTab('custos')">Custos fixos</button>
-    <button class="mtab ${cadTab === 'metas' ? 'active' : ''}" onclick="setCadTab('metas')">Metas</button>
+    <button class="mtab ${cliTab === 'lista' ? 'active' : ''}" onclick="setCliTab('lista')">Lista</button>
+    <button class="mtab ${cliTab === 'mensagens' ? 'active' : ''}" onclick="setCliTab('mensagens')">Mensagens</button>
   </div>
-  ${cadTab === 'clientes' ? renderClientes() : cadTab === 'servicos' ? renderServicos()
-    : cadTab === 'equipe' ? renderProfissionais() : cadTab === 'custos' ? renderCustosFixos() : finMetas()}`;
+  ${cliTab === 'lista' ? renderClientes() : renderMensagens()}`;
+}
+
+/* ─────────── Módulo Ajustes: o que define o negócio, mexe raramente ─────────── */
+let ajTab = 'servicos';
+function setAjTab(t) { ajTab = t; render(); }
+function renderAjustes() {
+  return `
+  <div class="modal-tabs">
+    <button class="mtab ${ajTab === 'servicos' ? 'active' : ''}" onclick="setAjTab('servicos')">Serviços e produtos</button>
+    <button class="mtab ${ajTab === 'equipe' ? 'active' : ''}" onclick="setAjTab('equipe')">Equipe</button>
+    <button class="mtab ${ajTab === 'prefs' ? 'active' : ''}" onclick="setAjTab('prefs')">Preferências</button>
+  </div>
+  ${ajTab === 'servicos' ? renderServicos() : ajTab === 'equipe' ? renderProfissionais() : renderPreferencias()}`;
+}
+function renderPreferencias() {
+  const c = db.config;
+  return `
+  <div class="p-block">
+    <span class="pb-label">Sua barbearia</span>
+    <div class="li"><div class="lbody"><div class="lt">Como o app te chama</div><div class="lm">aparece na saudação</div></div><div class="lend">${esc(c.nomeUsuario || '—')}</div></div>
+    <div class="li"><div class="lbody"><div class="lt">Nome da barbearia</div><div class="lm">aparece no topo e nas mensagens</div></div><div class="lend">${esc(c.nomeBarbearia || '—')}</div></div>
+    <div class="li"><div class="lbody"><div class="lt">Funcionamento</div><div class="lm">define a grade da agenda</div></div><div class="lend">${c.abertura} às ${c.fechamento}</div></div>
+    <div class="li"><div class="lbody"><div class="lt">Fidelidade</div><div class="lm">pontos por atendimento e resgate</div></div><div class="lend">${c.pontosPorCorte} / ${c.pontosResgate}</div></div>
+    <div class="li"><div class="lbody"><div class="lt">Cliente sumido</div><div class="lm">entra na fila de recuperação</div></div><div class="lend">${c.inativoDias} dias</div></div>
+    <div style="margin-top:14px"><button class="btn" onclick="openConfig()">Editar preferências</button></div>
+  </div>`;
 }
 
 /* ─────────── Métricas ─────────── */
@@ -1241,7 +1347,7 @@ function renderPainel() {
     <div class="sentence">${frases.join(' · ')}.</div>
   </div>
 
-  <div class="cmd" onclick="switchTab('agenda')">
+  <div class="cmd" onclick="switchTab('atendimentos')">
     <div class="big">${hojeList.length}</div>
     <div class="ctxt">
       <div class="t">Agendamentos para hoje — ${fmtDateLong(todayISO())}</div>
@@ -1353,12 +1459,16 @@ function card(num, lbl, hint, ico, small) {
 }
 
 /* ══════════════════════════════════════════════════════════════
-   VIEW: Agenda
+   MÓDULO: Atendimentos — Hoje / Esta semana / Este mês
+   Cada período responde a uma pergunta diferente:
+   hoje = "o que eu faço agora", semana = "como está minha semana",
+   mês = "o negócio está indo bem?". Por isso cada um mostra números
+   diferentes, e cada bloco vem com a frase que explica o número.
    ══════════════════════════════════════════════════════════════ */
-let agView = 'dia';       // 'dia' (padrão, celular) | 'cal' (semana) | 'lista'
-let agWeek = 0;           // offset de semanas, usado por 'cal' e 'lista'
-let agDia = todayISO();   // dia selecionado, usado por 'dia'
-let agProf = '';          // filtro por profissional
+let atdPeriodo = 'hoje';        // 'hoje' | 'semana' | 'mes'
+let atdOffDia = 0, atdOffSem = 0, atdOffMes = 0;
+let atdGrade = false;           // na semana, alterna lista <-> grade de horários
+let agProf = '';                // filtro por profissional
 
 function startOfWeek(offset) {
   const h = new Date();
@@ -1366,93 +1476,248 @@ function startOfWeek(offset) {
   return addDays(seg, offset * 7);
 }
 function mondayOf(iso) { const d = parseISO(iso); return addDays(d, -((d.getDay() + 6) % 7)); }
-function weekOffsetOf(iso) {
-  const cur = mondayOf(todayISO()).getTime(), alvo = mondayOf(iso).getTime();
-  return Math.round((alvo - cur) / (7 * 86400000));
+function setAtdPeriodo(p) { atdPeriodo = p; render(); }
+function atdNav(n) {
+  if (atdPeriodo === 'hoje') atdOffDia += n;
+  else if (atdPeriodo === 'semana') atdOffSem += n;
+  else atdOffMes += n;
+  render();
 }
-function setAgView(v) {
-  if (agView === 'dia' && v !== 'dia') agWeek = weekOffsetOf(agDia);
-  if (agView !== 'dia' && v === 'dia') agDia = agWeek === 0 ? todayISO() : isoOf(startOfWeek(agWeek));
-  agView = v; render();
-}
-function agNav(n) { agWeek += n; render(); }
-function agHoje() { agWeek = 0; render(); }
-function diaNav(n) { agDia = isoOf(addDays(parseISO(agDia), n)); render(); }
-function diaHoje() { agDia = todayISO(); render(); }
-function setAgDia(iso) { agDia = iso; render(); }
+function atdAgora() { atdOffDia = 0; atdOffSem = 0; atdOffMes = 0; render(); }
+function toggleGrade() { atdGrade = !atdGrade; render(); }
 function setAgProf(v) { agProf = v; updateFiltrosBadge(); render(); }
-
 function agFiltrada(list) { return agProf ? list.filter(a => a.profissionalId === agProf) : list; }
 
-function renderAgenda() {
-  const seg = startOfWeek(agWeek);
-  const fim = addDays(seg, 6);
-  const titulo = `${pad2(seg.getDate())} ${MES[seg.getMonth()]} — ${pad2(fim.getDate())} ${MES[fim.getMonth()]} ${fim.getFullYear()}`;
-  return `
-  <div class="dataview-bar">
-    <span class="view-seg">
-      <button class="${agView === 'dia' ? 'active' : ''}" onclick="setAgView('dia')">Dia</button>
-      <button class="${agView === 'cal' ? 'active' : ''}" onclick="setAgView('cal')">Semana</button>
-      <button class="${agView === 'lista' ? 'active' : ''}" onclick="setAgView('lista')">Lista</button>
-    </span>
-    <select class="srch" style="min-width:180px" onchange="setAgProf(this.value)">
-      <option value="">Todos os profissionais</option>
-      ${db.profissionais.map(p => `<option value="${p.id}"${agProf === p.id ? ' selected' : ''}>${esc(p.apelido || p.nome)}</option>`).join('')}
-    </select>
-    <button class="btn" data-mobile-hide style="margin-left:auto" onclick="openApptForm()">+ Novo agendamento</button>
-  </div>
-  ${agView === 'dia' ? diaView() : agView === 'cal' ? calGrid(seg, titulo) : agLista()}`;
+/* intervalo [inicio, fim] do período escolhido */
+function atdIntervalo() {
+  if (atdPeriodo === 'hoje') {
+    const d = isoOf(addDays(new Date(), atdOffDia));
+    return { ini: d, fim: d };
+  }
+  if (atdPeriodo === 'semana') {
+    const seg = startOfWeek(atdOffSem);
+    return { ini: isoOf(seg), fim: isoOf(addDays(seg, 6)) };
+  }
+  const h = new Date();
+  const ini = new Date(h.getFullYear(), h.getMonth() + atdOffMes, 1);
+  const fim = new Date(h.getFullYear(), h.getMonth() + atdOffMes + 1, 0);
+  return { ini: isoOf(ini), fim: isoOf(fim) };
+}
+function atdTitulo() {
+  const { ini, fim } = atdIntervalo();
+  if (atdPeriodo === 'hoje') {
+    const rel = atdOffDia === 0 ? ' · hoje' : atdOffDia === 1 ? ' · amanhã' : atdOffDia === -1 ? ' · ontem' : '';
+    return fmtDateLong(ini) + rel;
+  }
+  if (atdPeriodo === 'semana') {
+    const a = parseISO(ini), b = parseISO(fim);
+    return `${pad2(a.getDate())} ${MES[a.getMonth()]} — ${pad2(b.getDate())} ${MES[b.getMonth()]}`;
+  }
+  return fmtMonth(monthKey(ini));
+}
+const noPeriodo = () => {
+  const { ini, fim } = atdIntervalo();
+  return agFiltrada(db.agendamentos.filter(a => a.data >= ini && a.data <= fim));
+};
+
+/* números do período — mesma base para os três, cada view escolhe o que mostra */
+function atdResumo() {
+  const lista = noPeriodo();
+  const vivos = lista.filter(a => a.status !== 'cancelado');
+  const concl = lista.filter(a => a.status === 'concluido');
+  const previstos = vivos.filter(a => a.status === 'agendado' || a.status === 'confirmado');
+  const faturado = somaBy(concl.filter(a => !SEM_RECEITA.includes(a.formaPag)), valorDe);
+  return {
+    lista, vivos, concl, previstos,
+    aConfirmar: lista.filter(a => a.status === 'agendado').length,
+    faltas: lista.filter(a => a.status === 'faltou').length,
+    cancelados: lista.filter(a => a.status === 'cancelado').length,
+    aReceber: somaBy(previstos, valorDe),
+    faturado,
+    ticket: concl.length ? somaBy(concl, valorDe) / concl.length : 0,
+    permutas: concl.filter(a => SEM_RECEITA.includes(a.formaPag)).length
+  };
 }
 
-/* view padrão no celular: um dia por vez, sem grade larga pra rolar com o polegar */
-function diaView() {
-  const seg = mondayOf(agDia);
-  const dias = Array.from({ length: 7 }, (_, i) => isoOf(addDays(seg, i)));
-  const hoje = todayISO();
-  const contDia = {};
-  dias.forEach(d => { contDia[d] = agFiltrada(db.agendamentos.filter(a => a.data === d && a.status !== 'cancelado')).length; });
-  const doDia = agFiltrada(db.agendamentos.filter(a => a.data === agDia))
-    .sort((a, b) => a.hora.localeCompare(b.hora));
-  return `<div class="cal-wrap">
-    <div class="cal-nav" style="justify-content:space-between">
-      <button class="cal-nav-btn" onclick="diaNav(-1)" title="Dia anterior">‹</button>
-      <div class="cal-title">${fmtDateLong(agDia)}${agDia === hoje ? ' <span class="tag brass">hoje</span>' : ''}</div>
-      <button class="cal-nav-btn" onclick="diaNav(1)" title="Próximo dia">›</button>
+function renderAtendimentos() {
+  const r = atdResumo();
+  const ehAgora = (atdPeriodo === 'hoje' && atdOffDia === 0) ||
+                  (atdPeriodo === 'semana' && atdOffSem === 0) ||
+                  (atdPeriodo === 'mes' && atdOffMes === 0);
+  return `
+  <div class="dataview-bar">
+    <span class="periodo-seg">
+      <button class="${atdPeriodo === 'hoje' ? 'active' : ''}" onclick="setAtdPeriodo('hoje')">Hoje</button>
+      <button class="${atdPeriodo === 'semana' ? 'active' : ''}" onclick="setAtdPeriodo('semana')">Esta semana</button>
+      <button class="${atdPeriodo === 'mes' ? 'active' : ''}" onclick="setAtdPeriodo('mes')">Este mês</button>
+    </span>
+    ${db.profissionais.length > 1 ? `<select class="srch" style="min-width:170px" onchange="setAgProf(this.value)">
+      <option value="">Todos os profissionais</option>
+      ${db.profissionais.map(p => `<option value="${p.id}"${agProf === p.id ? ' selected' : ''}>${esc(p.apelido || p.nome)}</option>`).join('')}
+    </select>` : ''}
+    <button class="btn" data-mobile-hide style="margin-left:auto" onclick="openApptForm()">+ Novo agendamento</button>
+  </div>
+
+  <div class="periodo-nav">
+    <button class="cal-nav-btn" onclick="atdNav(-1)" title="Anterior">‹</button>
+    <button class="cal-nav-btn" onclick="atdNav(1)" title="Próximo">›</button>
+    <div class="pn-titulo">${atdTitulo()}</div>
+    ${ehAgora ? '' : `<button class="mini" onclick="atdAgora()">Voltar para ${atdPeriodo === 'hoje' ? 'hoje' : 'agora'}</button>`}
+  </div>
+
+  ${atdPeriodo === 'hoje' ? viewHoje(r) : atdPeriodo === 'semana' ? viewSemana(r) : viewMes(r)}`;
+}
+
+/* ─────────── HOJE: o que fazer agora ─────────── */
+function viewHoje(r) {
+  const { ini } = atdIntervalo();
+  const lista = r.vivos.slice().sort((a, b) => a.hora.localeCompare(b.hora));
+  const agora = new Date();
+  const minAgora = agora.getHours() * 60 + agora.getMinutes();
+  const ehHoje = ini === todayISO();
+  const proximo = ehHoje ? lista.find(a => hhmmToMin(a.hora) >= minAgora && a.status !== 'concluido') : lista[0];
+
+  const historia = !lista.length
+    ? `Dia livre. ${clientesInativos().length ? `Que tal chamar os <b>${clientesInativos().length} clientes sumidos</b>?` : 'Aproveite para organizar o catálogo.'}`
+    : `${ehHoje ? 'Você tem' : 'Nesse dia são'} <b>${lista.length} atendimento${lista.length > 1 ? 's' : ''}</b>` +
+      (r.aReceber > 0 ? `, <b class="valor-oculto">${money(r.aReceber)}</b> a receber` : '') +
+      (r.aConfirmar ? ` · <b>${r.aConfirmar}</b> ainda sem confirmar` : ' · todos confirmados') +
+      (proximo && ehHoje ? ` · próximo às <b>${proximo.hora}</b>` : '') + '.';
+
+  return `
+  <div class="analise" style="margin-bottom:16px">
+    <div class="an-tit">${ehHoje ? 'Seu dia' : 'Esse dia'}</div>
+    <div class="an-hist">${historia}</div>
+    <div class="stat-grid">
+      ${stat(ICO.agenda, 'Atendimentos', String(lista.length), `${r.concl.length} já concluído(s)`)}
+      ${stat(ICO.money, 'A receber', money(r.aReceber), 'do que ainda falta atender', 'valor')}
+      ${stat(ICO.clock, 'A confirmar', String(r.aConfirmar), r.aConfirmar ? 'mande um lembrete' : 'nada pendente', '', r.aConfirmar ? 'neg' : 'pos')}
+      ${stat(ICO.hand, 'Já faturado', money(r.faturado), r.permutas ? `${r.permutas} permuta(s) fora da conta` : 'atendimentos concluídos', 'valor')}
     </div>
-    <div class="dia-strip">
-      ${dias.map(d => { const dt = parseISO(d);
-        return `<button class="dia-chip${d === agDia ? ' active' : ''}${d === hoje ? ' today' : ''}" onclick="setAgDia('${d}')">
-          <span class="dc-d">${DOW[dt.getDay()]}</span><span class="dc-n">${pad2(dt.getDate())}</span>
-          ${contDia[d] ? '<span class="dc-dot"></span>' : ''}
-        </button>`;
+  </div>
+
+  ${lista.length ? `<div class="analise">
+    <div class="an-tit">Linha do tempo</div>
+    <div class="an-hist">Toque num atendimento para ver detalhes, concluir ou avisar o cliente.</div>
+    <div class="tl">
+      ${lista.map(a => {
+        const c = getCli(a.clienteId) || {};
+        const feito = a.status === 'concluido';
+        const perdido = a.status === 'faltou';
+        const msg = `Olá ${firstName(c.nome)}! Aqui é da ${nomeBarbearia()}. Confirmando seu horário ${ehHoje ? 'hoje' : 'em ' + fmtDate(a.data)} às ${a.hora}. Posso confirmar?`;
+        return `<div class="tl-item${feito ? ' feito' : ''}${perdido ? ' perdido' : ''}">
+          <div class="tl-hora">${a.hora}</div>
+          <div class="tl-ponto" style="${!feito && !perdido ? `background:${corProf(a.profissionalId)}` : ''}"></div>
+          <div class="tl-card" onclick="openApptDetail('${a.id}')">
+            <div class="tc-top">
+              <span class="tc-nome">${esc(c.nome || '—')}</span>
+              ${stTag(a.status)}
+              <span style="margin-left:auto;font-weight:700" class="valor-oculto">${money(valorDe(a))}</span>
+            </div>
+            <div class="tc-sub">${esc(nomeSrv(a.servicoId))}${db.profissionais.length > 1 ? ' · ' + esc(nomeProf(a.profissionalId)) : ''}</div>
+            ${!feito && !perdido ? `<div class="tc-acoes" onclick="event.stopPropagation()">
+              <button class="mini ok" onclick="concluir('${a.id}')">Concluir</button>
+              ${a.status === 'agendado' ? `<button class="mini" onclick="setStatus('${a.id}','confirmado')">Confirmar</button>` : ''}
+              ${onlyDigits(c.tel) ? `<a class="mini" href="${waLink(c.tel, msg)}" target="_blank" rel="noopener" style="text-decoration:none">WhatsApp</a>` : ''}
+            </div>` : ''}
+          </div>
+        </div>`;
       }).join('')}
     </div>
-    ${agDia !== hoje ? `<button class="mini" style="margin:10px 0 4px" onclick="diaHoje()">Voltar para hoje</button>` : ''}
+  </div>` : `<div class="analise"><div class="empty-soft">
+    Nenhum atendimento neste dia.<br><button class="btn" style="margin-top:12px" onclick="openApptForm({data:'${ini}'})">Agendar alguém</button>
+  </div></div>`}`;
+}
+
+/* ─────────── ESTA SEMANA: como a semana está distribuída ─────────── */
+function viewSemana(r) {
+  const seg = mondayOf(atdIntervalo().ini);
+  const dias = Array.from({ length: 7 }, (_, i) => isoOf(addDays(seg, i)));
+  const hoje = todayISO();
+  const porDia = dias.map(d => {
+    const doDia = r.vivos.filter(a => a.data === d);
+    return { d, qtd: doDia.length, valor: somaBy(doDia, valorDe), lista: doDia.sort((a, b) => a.hora.localeCompare(b.hora)) };
+  });
+  const maxQtd = Math.max(1, ...porDia.map(x => x.qtd));
+  const cheio = porDia.slice().sort((a, b) => b.qtd - a.qtd)[0];
+  const vazios = porDia.filter(x => !x.qtd).length;
+
+  const historia = !r.vivos.length
+    ? 'Semana sem nenhum atendimento marcado ainda.'
+    : `<b>${r.vivos.length} atendimentos</b> na semana, <b class="valor-oculto">${money(r.aReceber + r.faturado)}</b> no total.` +
+      (cheio && cheio.qtd ? ` <b>${diaSemanaLongo(cheio.d)}</b> é seu dia mais cheio, com ${cheio.qtd}.` : '') +
+      (vazios ? ` ${vazios} dia(s) sem ninguém — espaço para encaixar.` : '');
+
+  return `
+  <div class="analise" style="margin-bottom:16px">
+    <div class="an-tit">Sua semana</div>
+    <div class="an-hist">${historia}</div>
+    <div class="stat-grid">
+      ${stat(ICO.agenda, 'Atendimentos', String(r.vivos.length), `${r.concl.length} concluído(s)`)}
+      ${stat(ICO.money, 'Faturado', money(r.faturado), 'já concluído e pago', 'valor')}
+      ${stat(ICO.clock, 'A receber', money(r.aReceber), 'ainda por atender', 'valor')}
+      ${stat(ICO.ticket, 'Ticket médio', money(r.ticket), 'por atendimento concluído', 'valor')}
+    </div>
+  </div>
+
+  <div class="analise" style="margin-bottom:16px">
+    <div class="an-tit">Movimento por dia</div>
+    <div class="an-hist">Onde estão os seus horários. Toque num dia para ver quem está marcado.</div>
+    ${porDia.map(x => `
+      <div class="barra ${x.qtd === maxQtd && x.qtd ? 'destaque' : ''}${x.qtd ? '' : ' vazio'}" style="cursor:pointer" onclick="irParaDia('${x.d}')">
+        <div class="ba-top">
+          <span class="ba-rot">${diaSemanaLongo(x.d)}${x.d === hoje ? ' · hoje' : ''}</span>
+          <span class="ba-val">${x.qtd ? `${x.qtd} · <span class="valor-oculto">${money(x.valor)}</span>` : 'livre'}</span>
+        </div>
+        <div class="ba-track"><div class="ba-fill" style="width:${x.qtd ? Math.max(6, pct(x.qtd, maxQtd)) : 2}%"></div></div>
+      </div>`).join('')}
+  </div>
+
+  <div class="analise">
+    <div class="an-tit" style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap">
+      <span>${atdGrade ? 'Grade de horários' : 'Todos os atendimentos'}</span>
+      <button class="mini" onclick="toggleGrade()">${atdGrade ? 'Ver como lista' : 'Ver grade de horários'}</button>
+    </div>
+    <div class="an-hist">${atdGrade ? 'Toque num horário vago para agendar.' : 'Em ordem de dia e hora.'}</div>
+    ${atdGrade ? gradeSemana(seg) : listaAgrupada(porDia)}
+  </div>`;
+}
+function diaSemanaLongo(iso) {
+  const d = parseISO(iso);
+  const nomes = ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado'];
+  return `${nomes[d.getDay()]} ${pad2(d.getDate())}`;
+}
+function irParaDia(iso) {
+  atdPeriodo = 'hoje';
+  atdOffDia = Math.round((parseISO(iso) - parseISO(todayISO())) / 86400000);
+  render();
+}
+function listaAgrupada(porDia) {
+  const comGente = porDia.filter(x => x.qtd);
+  if (!comGente.length) return `<div class="empty-soft">Nenhum atendimento nesta semana.</div>`;
+  return comGente.map(x => `
     <div style="margin-top:14px">
-      ${doDia.length ? doDia.map(a => `
+      <span class="pb-label" style="margin-bottom:6px">${diaSemanaLongo(x.d)}</span>
+      ${x.lista.map(a => `
         <div class="li clickable" onclick="openApptDetail('${a.id}')">
           <div class="lbar" style="background:${corProf(a.profissionalId)}"></div>
           <div class="lbody">
             <div class="lt">${a.hora} · ${esc(nomeCli(a.clienteId))} ${stTag(a.status)}</div>
-            <div class="lm">${esc(nomeSrv(a.servicoId))} · ${esc(nomeProf(a.profissionalId))}</div>
+            <div class="lm">${esc(nomeSrv(a.servicoId))}</div>
           </div>
-          <div class="lend">${money(valorDe(a))}</div>
-        </div>`).join('') : `<div class="empty-soft">Nenhum atendimento neste dia. Toque no <b>+</b> pra agendar.</div>`}
-    </div>
-  </div>`;
+          <div class="lend valor-oculto">${money(valorDe(a))}</div>
+        </div>`).join('')}
+    </div>`).join('');
 }
-
-function calGrid(seg, titulo) {
+function gradeSemana(seg) {
   const ini = hhmmToMin(db.config.abertura), fim = hhmmToMin(db.config.fechamento);
   const dias = Array.from({ length: 7 }, (_, i) => isoOf(addDays(seg, i)));
   const hoje = todayISO();
   const ags = agFiltrada(db.agendamentos.filter(a => dias.includes(a.data)));
-
   let head = `<div class="cal-corner"></div>` + dias.map(d => {
     const dt = parseISO(d);
     return `<div class="cal-dow${d === hoje ? ' today' : ''}"><div class="d1">${DOW[dt.getDay()]}</div><div class="d2">${pad2(dt.getDate())}</div></div>`;
   }).join('');
-
   let body = '';
   for (let h = ini; h < fim; h += 60) {
     body += `<div class="cal-hour">${minToHHMM(h)}</div>`;
@@ -1463,53 +1728,130 @@ function calGrid(seg, titulo) {
         ${noSlot.map(a => `<div class="cal-appt ${a.status === 'concluido' ? 'done' : ''}${a.status === 'cancelado' || a.status === 'faltou' ? ' cancel' : ''}"
              style="border-left-color:${corProf(a.profissionalId)}"
              onclick="event.stopPropagation();openApptDetail('${a.id}')" title="${esc(nomeCli(a.clienteId))} — ${esc(nomeSrv(a.servicoId))}">
-             <div class="ca-h">${a.hora} · ${esc(nomeProf(a.profissionalId))}</div>
-             <div class="ca-n">${esc(nomeCli(a.clienteId))}</div>
+             <div class="ca-h">${a.hora}</div><div class="ca-n">${esc(firstName(nomeCli(a.clienteId)))}</div>
            </div>`).join('')}
       </div>`;
     });
   }
+  return `<div class="cal-scroll" style="margin-top:10px"><div class="cal-tbl">${head}${body}</div></div>`;
+}
 
-  return `<div class="cal-wrap">
-    <div class="cal-nav">
-      <button class="cal-nav-btn" onclick="agNav(-1)" title="Semana anterior">‹</button>
-      <button class="cal-nav-btn" onclick="agNav(1)" title="Próxima semana">›</button>
-      <div class="cal-title">${titulo}</div>
-      <button class="mini" onclick="agHoje()">Hoje</button>
-      <div style="margin-left:auto;font-size:.76rem;color:var(--text-dim)">Clique num horário vago para agendar</div>
+/* ─────────── ESTE MÊS: o negócio está indo bem? ─────────── */
+function viewMes(r) {
+  const { ini, fim } = atdIntervalo();
+  const mk = monthKey(ini);
+  const meta = db.metas.find(m => m.mes === mk);
+  const receitaMes = somaBy(db.financeiro.filter(f => f.tipo === 'receita' && monthKey(f.data) === mk), f => f.valor);
+
+  /* semanas do mês */
+  const semanas = [];
+  let cursor = mondayOf(ini);
+  const fimD = parseISO(fim);
+  while (cursor <= fimD) {
+    const a = isoOf(cursor), b = isoOf(addDays(cursor, 6));
+    const doPeriodo = r.vivos.filter(x => x.data >= a && x.data <= b);
+    semanas.push({ a, b, qtd: doPeriodo.length, valor: somaBy(doPeriodo, valorDe) });
+    cursor = addDays(cursor, 7);
+  }
+  const maxSem = Math.max(1, ...semanas.map(s => s.qtd));
+  const melhorSem = semanas.slice().sort((x, y) => y.valor - x.valor)[0];
+
+  /* serviços e clientes que mais aparecem */
+  const contaPor = (arr, chave) => {
+    const m = {};
+    arr.forEach(a => { const k = chave(a); m[k] = m[k] || { qtd: 0, valor: 0 }; m[k].qtd++; m[k].valor += valorDe(a); });
+    return Object.entries(m).map(([k, v]) => ({ k, ...v })).sort((x, y) => y.valor - x.valor);
+  };
+  const topServicos = contaPor(r.concl, a => a.servicoId).slice(0, 5);
+  const topClientes = contaPor(r.concl, a => a.clienteId).slice(0, 5);
+  const maxSrv = Math.max(1, ...topServicos.map(s => s.valor));
+  const maxCli = Math.max(1, ...topClientes.map(c => c.valor));
+  const totalTop = somaBy(topClientes, c => c.valor);
+
+  const diasNoMes = parseISO(fim).getDate();
+  const diaHoje = monthKey(todayISO()) === mk ? new Date().getDate() : diasNoMes;
+  const ritmo = diaHoje > 0 ? receitaMes / diaHoje : 0;
+  const projecao = ritmo * diasNoMes;
+
+  const historia = !r.lista.length
+    ? 'Nenhum atendimento registrado neste mês ainda.'
+    : `<b>${r.concl.length} atendimento(s)</b> concluídos e <b class="valor-oculto">${money(receitaMes)}</b> faturados.` +
+      (meta ? (receitaMes >= meta.valor
+        ? ` <b>Meta batida!</b> Passou em ${money(receitaMes - meta.valor)}.`
+        : ` Faltam <b class="valor-oculto">${money(meta.valor - receitaMes)}</b> para a meta — cerca de <b>${Math.ceil((meta.valor - receitaMes) / Math.max(1, r.ticket))} atendimentos</b>.`) : '') +
+      (r.faltas ? ` ${r.faltas} falta(s) no período.` : '');
+
+  return `
+  <div class="analise" style="margin-bottom:16px">
+    <div class="an-tit">Seu mês</div>
+    <div class="an-hist">${historia}</div>
+    <div class="stat-grid">
+      ${stat(ICO.agenda, 'Atendimentos', String(r.vivos.length), `${r.concl.length} concluído(s)`)}
+      ${stat(ICO.money, 'Faturado', money(receitaMes), 'receitas do mês', 'valor')}
+      ${stat(ICO.ticket, 'Ticket médio', money(r.ticket), 'por atendimento', 'valor')}
+      ${meta
+        ? stat(ICO.star, 'Meta do mês', `${pct(receitaMes, meta.valor)}%`, `de ${moneyShort(meta.valor)}`, '', receitaMes >= meta.valor ? 'pos' : '')
+        : stat(ICO.clock, 'Projeção', money(projecao), 'no ritmo atual', 'valor')}
     </div>
-    <div class="cal-scroll"><div class="cal-tbl">${head}${body}</div></div>
-    <div class="cal-legend">
-      ${db.profissionais.map(p => `<div class="cal-legend-item"><div class="cal-legend-dot" style="background:${p.cor}"></div>${esc(p.apelido || p.nome)}</div>`).join('')}
+    ${meta ? `<div class="goal" style="margin-top:14px">
+      <div class="gh"><span class="gt">Meta de ${fmtMonth(mk)}</span>
+        <span class="gv valor-oculto">${money(receitaMes)} de ${money(meta.valor)}</span></div>
+      <div class="gtrack"><div class="gfill" style="width:${Math.min(100, pct(receitaMes, meta.valor))}%"></div></div>
+    </div>` : ''}
+  </div>
+
+  <div class="analise" style="margin-bottom:16px">
+    <div class="an-tit">Semana a semana</div>
+    <div class="an-hist">${melhorSem && melhorSem.qtd
+      ? `A semana de <b>${fmtDate(melhorSem.a)}</b> foi a mais forte, com ${melhorSem.qtd} atendimento(s).`
+      : 'Ainda não há movimento para comparar.'}</div>
+    ${semanas.map(s => `
+      <div class="barra ${s.qtd === maxSem && s.qtd ? 'destaque' : ''}${s.qtd ? '' : ' vazio'}">
+        <div class="ba-top">
+          <span class="ba-rot">${fmtDate(s.a)} a ${fmtDate(s.b)}</span>
+          <span class="ba-val">${s.qtd ? `${s.qtd} · <span class="valor-oculto">${money(s.valor)}</span>` : 'sem movimento'}</span>
+        </div>
+        <div class="ba-track"><div class="ba-fill" style="width:${s.qtd ? Math.max(6, pct(s.qtd, maxSem)) : 2}%"></div></div>
+      </div>`).join('')}
+  </div>
+
+  <div class="p-row2">
+    <div class="analise">
+      <div class="an-tit">O que mais sai</div>
+      <div class="an-hist">${topServicos.length
+        ? `<b>${esc(nomeSrv(topServicos[0].k))}</b> é o seu carro-chefe do mês.`
+        : 'Conclua atendimentos para ver o ranking.'}</div>
+      ${topServicos.length ? topServicos.map(s => `
+        <div class="barra">
+          <div class="ba-top"><span class="ba-rot">${esc(nomeSrv(s.k))}</span>
+            <span class="ba-val">${s.qtd}× · <span class="valor-oculto">${money(s.valor)}</span></span></div>
+          <div class="ba-track"><div class="ba-fill" style="width:${Math.max(6, pct(s.valor, maxSrv))}%"></div></div>
+        </div>`).join('') : `<div class="empty-soft">Nada concluído ainda.</div>`}
+    </div>
+    <div class="analise">
+      <div class="an-tit">Quem mais volta</div>
+      <div class="an-hist">${topClientes.length && totalTop
+        ? `<b>${esc(firstName(nomeCli(topClientes[0].k)))}</b> representa ${pct(topClientes[0].valor, totalTop)}% do que esses clientes deixaram no mês.`
+        : 'Conclua atendimentos para ver o ranking.'}</div>
+      ${topClientes.length ? topClientes.map(c => `
+        <div class="barra" style="cursor:pointer" onclick="openClienteDetail('${c.k}')">
+          <div class="ba-top"><span class="ba-rot">${esc(nomeCli(c.k))}</span>
+            <span class="ba-val">${c.qtd}× · <span class="valor-oculto">${money(c.valor)}</span></span></div>
+          <div class="ba-track"><div class="ba-fill" style="width:${Math.max(6, pct(c.valor, maxCli))}%"></div></div>
+        </div>`).join('') : `<div class="empty-soft">Nada concluído ainda.</div>`}
     </div>
   </div>`;
 }
 
-function agLista() {
-  const seg = startOfWeek(agWeek);
-  const dias = Array.from({ length: 7 }, (_, i) => isoOf(addDays(seg, i)));
-  const list = agFiltrada(db.agendamentos.filter(a => dias.includes(a.data)))
-    .sort((a, b) => (a.data + a.hora).localeCompare(b.data + b.hora));
-  return `<div class="tbl-wrap">
-    <div class="tbl-header">
-      <div class="tbl-title">Atendimentos da semana</div>
-      <div style="display:flex;gap:8px;align-items:center">
-        <button class="mini" onclick="agNav(-1)">‹ anterior</button>
-        <button class="mini" onclick="agHoje()">hoje</button>
-        <button class="mini" onclick="agNav(1)">próxima ›</button>
-      </div>
+/* cartão compacto reaproveitado pelas três views */
+function stat(icone, label, numero, hint, classeValor, tom) {
+  return `<div class="stat ${tom || ''}">
+    <div class="st-ico">${icone}</div>
+    <div class="st-txt">
+      <span class="st-lbl">${esc(label)}</span>
+      <span class="st-num${classeValor === 'valor' ? ' valor-oculto' : ''}">${numero}</span>
+      ${hint ? `<span class="st-hint">${esc(hint)}</span>` : ''}
     </div>
-    <div class="tbl-scroll"><table>
-      <thead><tr><th>Data</th><th>Hora</th><th>Cliente</th><th>Serviço</th><th>Profissional</th><th>Valor</th><th>Status</th></tr></thead>
-      <tbody>${list.length ? list.map(a => `
-        <tr onclick="openApptDetail('${a.id}')">
-          <td>${fmtDateLong(a.data)}</td><td><b>${a.hora}</b></td>
-          <td>${esc(nomeCli(a.clienteId))}</td><td>${esc(nomeSrv(a.servicoId))}</td>
-          <td><span style="color:${corProf(a.profissionalId)};font-weight:700">${esc(nomeProf(a.profissionalId))}</span></td>
-          <td>${money(valorDe(a))}</td><td>${stTag(a.status)}</td>
-        </tr>`).join('') : `<tr><td colspan="7"><div class="empty-soft">Nenhum agendamento nesta semana.</div></td></tr>`}
-      </tbody>
-    </table></div>
   </div>`;
 }
 
@@ -1934,13 +2276,21 @@ function renderFinanceiro() {
   return `
   <div class="dataview-bar">
     <div class="modal-tabs" style="margin:0;border:none">
-      <button class="mtab ${finTab === 'mov' ? 'active' : ''}" onclick="setFinTab('mov')">Receitas &amp; Despesas</button>
-      ${equipeSimples() ? '' : `<button class="mtab ${finTab === 'com' ? 'active' : ''}" onclick="setFinTab('com')">Comissões</button>`}
+      <button class="mtab ${finTab === 'mov' ? 'active' : ''}" onclick="setFinTab('mov')">Entradas e saídas</button>
+      <button class="mtab ${finTab === 'custos' ? 'active' : ''}" onclick="setFinTab('custos')">Custos fixos</button>
+      <button class="mtab ${finTab === 'metas' ? 'active' : ''}" onclick="setFinTab('metas')">Metas</button>
       <button class="mtab ${finTab === 'proj' ? 'active' : ''}" onclick="setFinTab('proj')">Projeções</button>
+      ${equipeSimples() ? '' : `<button class="mtab ${finTab === 'com' ? 'active' : ''}" onclick="setFinTab('com')">Comissões</button>`}
     </div>
   </div>
-  ${finTab === 'mov' ? finMov() : (finTab === 'com' && !equipeSimples()) ? finComissoes() : finTab === 'proj' ? finProj() : finMov()}`;
+  ${finTab === 'mov' ? finMov()
+    : finTab === 'custos' ? renderCustosFixos()
+    : finTab === 'metas' ? finMetas()
+    : finTab === 'proj' ? finProj()
+    : (finTab === 'com' && !equipeSimples()) ? finComissoes()
+    : finMov()}`;
 }
+function irParaMetas() { finTab = 'metas'; switchTab('financeiro'); }
 
 function finMov() {
   const m = metrics();
@@ -2719,6 +3069,15 @@ function applyTheme(theme) {
   Store.set('domtavares_theme', theme);
 }
 function toggleTheme() { applyTheme(document.body.classList.contains('light') ? 'dark' : 'light'); }
+/* esconder valores: o barbeiro abre o app na frente do cliente e nem sempre
+   quer o faturamento à mostra */
+function applyValores(ocultar) {
+  document.body.classList.toggle('ocultar-valores', ocultar);
+  document.getElementById('olhoBtn').innerHTML = ocultar ? ICO.olhoOff : ICO.olho;
+  document.getElementById('olhoBtn').title = ocultar ? 'Mostrar valores' : 'Esconder valores';
+  Store.set('domtavares_ocultar', ocultar ? '1' : '0');
+}
+function toggleValores() { applyValores(!document.body.classList.contains('ocultar-valores')); }
 function applyBrand() {
   const casa = nomeBarbearia();
   document.getElementById('sbNome').textContent = casa;
@@ -2832,6 +3191,7 @@ async function entrarNoApp() {
 function boot() {
   loadDB();
   applyTheme(Store.get('domtavares_theme') === 'dark' ? 'dark' : 'light');   // claro é o padrão
+  applyValores(Store.get('domtavares_ocultar') === '1');
   if (Store.get('domtavares_sidebar') === '1') document.getElementById('appwin').classList.add('sidebar-collapsed');
   applyBrand();
   document.getElementById('loginLogo').textContent = initials(nomeBarbearia()) || 'DT';
