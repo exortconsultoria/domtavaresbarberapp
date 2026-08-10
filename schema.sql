@@ -88,6 +88,8 @@ create table if not exists metas (
   valor      numeric(10,2) not null,
   created_at timestamptz not null default now()
 );
+-- faturamento esperado do mês (diferente da meta: meta é onde quer chegar, projeção é o que espera)
+alter table metas add column if not exists projecao numeric(10,2);
 
 -- ─────────── custos fixos (recorrentes todo mês) ───────────
 create table if not exists custos_fixos (
@@ -123,6 +125,7 @@ create table if not exists configuracoes (
   inativo_dias    integer not null default 45,
   pontos_por_corte  integer not null default 1,
   pontos_resgate    integer not null default 10,
+  projecao_padrao   numeric(10,2) not null default 5000,
   updated_at      timestamptz not null default now()
 );
 insert into configuracoes (id) values (true) on conflict (id) do nothing;

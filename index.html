@@ -766,7 +766,8 @@ const CONFIG_PADRAO = {
   nomeUsuario: 'Tavares',          // como o app se dirige ao dono
   nomeBarbearia: 'Dom Tavares',
   abertura: '09:00', fechamento: '20:00',
-  inativoDias: 45, pontosPorCorte: 1, pontosResgate: 10
+  inativoDias: 45, pontosPorCorte: 1, pontosResgate: 10,
+  projecaoPadrao: 5000             // quanto assumir de faturamento num mês que ainda não começou
 };
 
 /* ─────────── Helpers ─────────── */
@@ -947,9 +948,11 @@ const MAP = {
     fromRow: r => ({ id: r.id, data: r.data, tipo: r.tipo, categoria: r.categoria, descricao: r.descricao,
                      valor: Number(r.valor) || 0, formaPag: r.forma_pag, auto: !!r.auto,
                      agendamentoId: r.agendamento_id || undefined, custoFixoId: r.custo_fixo_id || undefined }) },
+  /* projecao: quanto o dono espera faturar naquele mês (diferente da meta, que é onde ele quer chegar) */
   metas: { tabela: 'metas',
-    toRow: o => ({ id: o.id, mes: o.mes, valor: num(o.valor) || 0 }),
-    fromRow: r => ({ id: r.id, mes: r.mes, valor: Number(r.valor) || 0 }) },
+    toRow: o => ({ id: o.id, mes: o.mes, valor: num(o.valor) || 0, projecao: num(o.projecao) }),
+    fromRow: r => ({ id: r.id, mes: r.mes, valor: Number(r.valor) || 0,
+                     projecao: r.projecao === null || r.projecao === undefined ? undefined : Number(r.projecao) }) },
   custosFixos: { tabela: 'custos_fixos',
     toRow: o => ({ id: o.id, nome: o.nome, categoria: o.categoria || 'Geral', valor: num(o.valor) || 0,
                    dia_venc: num(o.diaVenc) || 5, ativo: !!o.ativo }),
@@ -962,10 +965,13 @@ const MAP = {
 const COLECOES = Object.keys(MAP);
 const configToRow = c => ({ id: true, nome_usuario: c.nomeUsuario, nome_barbearia: c.nomeBarbearia,
   abertura: c.abertura, fechamento: c.fechamento, inativo_dias: num(c.inativoDias) || 45,
-  pontos_por_corte: num(c.pontosPorCorte) || 0, pontos_resgate: num(c.pontosResgate) || 10 });
+  pontos_por_corte: num(c.pontosPorCorte) || 0, pontos_resgate: num(c.pontosResgate) || 10,
+  projecao_padrao: num(c.projecaoPadrao) || 0 });
 const configFromRow = r => ({ nomeUsuario: r.nome_usuario, nomeBarbearia: r.nome_barbearia,
   abertura: hhmm(r.abertura), fechamento: hhmm(r.fechamento), inativoDias: Number(r.inativo_dias),
-  pontosPorCorte: Number(r.pontos_por_corte), pontosResgate: Number(r.pontos_resgate) });
+  pontosPorCorte: Number(r.pontos_por_corte), pontosResgate: Number(r.pontos_resgate),
+  projecaoPadrao: r.projecao_padrao === null || r.projecao_padrao === undefined
+    ? CONFIG_PADRAO.projecaoPadrao : Number(r.projecao_padrao) });
 
 let nuvem = null;              // espelho do que já está no Supabase
 let syncEstado = 'ok';         // 'ok' | 'enviando' | 'erro'
@@ -1221,6 +1227,7 @@ function renderPreferencias() {
     <div class="li"><div class="lbody"><div class="lt">Funcionamento</div><div class="lm">define a grade da agenda</div></div><div class="lend">${c.abertura} às ${c.fechamento}</div></div>
     <div class="li"><div class="lbody"><div class="lt">Fidelidade</div><div class="lm">pontos por atendimento e resgate</div></div><div class="lend">${c.pontosPorCorte} / ${c.pontosResgate}</div></div>
     <div class="li"><div class="lbody"><div class="lt">Cliente sumido</div><div class="lm">entra na fila de recuperação</div></div><div class="lend">${c.inativoDias} dias</div></div>
+    <div class="li"><div class="lbody"><div class="lt">Projeção padrão</div><div class="lm">faturamento assumido nos meses futuros</div></div><div class="lend valor-oculto">${money(c.projecaoPadrao != null ? c.projecaoPadrao : 5000)}</div></div>
     <div style="margin-top:14px"><button class="btn" onclick="openConfig()">Editar preferências</button></div>
   </div>`;
 }
@@ -2561,12 +2568,19 @@ function finProj() {
    a média do que foi realizado (ou a meta, se houver) e os custos
    fixos cadastrados, que são conhecidos de antemão.
    ══════════════════════════════════════════════════════════════ */
+const projecaoPadrao = () => Number(db.config.projecaoPadrao) || 0;
+/* quanto esperar de um mês que ainda não começou: o ajuste dele para aquele mês,
+   senão o padrão configurado */
+const projecaoDoMes = mk => {
+  const m = db.metas.find(x => x.mes === mk);
+  return m && m.projecao !== undefined && m.projecao !== null ? Number(m.projecao) : projecaoPadrao();
+};
 function dadosAnuais(ano) {
   const mkAtual = curMonthKey();
   const fixosMensais = totalCustosFixos();
   const meses = Array.from({ length: 12 }, (_, i) => `${ano}-${pad2(i + 1)}`);
 
-  /* base para projetar: média dos meses já realizados que tiveram receita */
+  /* média realizada — não entra na conta, serve de referência para ele calibrar o padrão */
   const realizados = meses.filter(mk => mk <= mkAtual).map(mk => ({
     mk, receita: somaBy(db.financeiro.filter(f => f.tipo === 'receita' && monthKey(f.data) === mk), f => f.valor)
   }));
@@ -2579,13 +2593,16 @@ function dadosAnuais(ano) {
     const despesaReal = somaBy(db.financeiro.filter(f => f.tipo === 'despesa' && monthKey(f.data) === mk), f => f.valor);
     const fixosLancados = somaBy(db.financeiro.filter(f => f.custoFixoId && monthKey(f.data) === mk), f => f.valor);
     const outrasDespesas = despesaReal - fixosLancados;      // despesas que não são custo fixo
-    const meta = (db.metas.find(m => m.mes === mk) || {}).valor || 0;
+    const registro = db.metas.find(m => m.mes === mk);
+    const meta = (registro || {}).valor || 0;
+    const projecao = projecaoDoMes(mk);
+    const ajustada = !!(registro && registro.projecao !== undefined && registro.projecao !== null);
 
-    /* futuro: usa a meta se existir, senão a média realizada */
-    const receita = passado || atual ? receitaReal : (meta || mediaReceita);
+    /* mês começou (passado ou corrente) vale o que aconteceu de verdade; o resto é projeção */
+    const receita = passado || atual ? receitaReal : projecao;
     const fixos = fixosLancados || (passado ? 0 : fixosMensais);
     const outras = passado || atual ? outrasDespesas : 0;
-    return { mk, passado, atual, receita, receitaReal, fixos, fixosLancados, outras, meta,
+    return { mk, passado, atual, receita, receitaReal, fixos, fixosLancados, outras, meta, projecao, ajustada,
              projetado: !passado && !atual, resultado: receita - fixos - outras };
   });
 
@@ -2596,8 +2613,68 @@ function dadosAnuais(ano) {
     totOutras: somaBy(linhas, l => l.outras),
     totResultado: somaBy(linhas, l => l.resultado),
     realizadoReceita: somaBy(linhas.filter(l => !l.projetado), l => l.receita),
-    mesesSemFixos: linhas.filter(l => !l.passado && !l.fixosLancados).map(l => l.mk)
+    mesesSemFixos: linhas.filter(l => !l.passado && !l.fixosLancados).map(l => l.mk),
+    mesesAjustados: linhas.filter(l => l.projetado && l.ajustada).length
   };
+}
+/* ajustar a projeção de um mês específico */
+function openProjecaoMes(mk) {
+  const registro = db.metas.find(m => m.mes === mk);
+  const atual = projecaoDoMes(mk);
+  const body = `
+    <div style="font-size:.86rem;color:var(--text-dim);line-height:1.6;margin-bottom:16px">
+      Quanto você espera faturar em <b style="color:var(--text)" class="cap">${fmtMonth(mk)}</b>?
+      Assim que o mês começar, o app passa a usar o que realmente entrou.
+    </div>
+    <label>Faturamento esperado (R$)</label>
+    <input type="number" id="pjValor" step="100" min="0" value="${atual}">
+    <div style="font-size:.76rem;color:var(--text-mute);margin-top:12px;line-height:1.5">
+      Padrão de todos os meses: <b>${money(projecaoPadrao())}</b>${
+        registro && registro.projecao != null ? ' · este mês está ajustado' : ''}
+    </div>`;
+  const acoes = [
+    { label: 'Salvar', fn: () => {
+      const v = Number(val('pjValor'));
+      if (!(v >= 0)) { toast('Informe um valor válido.', '⚠️'); return; }
+      const reg = db.metas.find(m => m.mes === mk);
+      if (reg) reg.projecao = v;
+      else db.metas.push({ id: uid(), mes: mk, valor: 0, projecao: v });
+      saveDB(); closeCModal(); render();
+      toast(`Projeção de ${fmtMonth(mk)}: <b>${money(v)}</b>.`, '📈');
+    } }
+  ];
+  if (registro && registro.projecao != null) acoes.push({ label: 'Usar o padrão', cls: 'btn-ghost', fn: () => {
+    registro.projecao = undefined;
+    if (!registro.valor) db.metas = db.metas.filter(m => m.id !== registro.id);   // registro só existia pela projeção
+    saveDB(); closeCModal(); render();
+    toast(`${fmtMonth(mk)} voltou ao padrão de ${money(projecaoPadrao())}.`, '↩️');
+  } });
+  acoes.push({ label: 'Cancelar', cls: 'btn-ghost', fn: closeCModal });
+  openCModal('Projeção do mês', body, acoes);
+}
+function openProjecaoPadrao() {
+  const media = dadosAnuais(finAno).mediaReceita;
+  const body = `
+    <div style="font-size:.86rem;color:var(--text-dim);line-height:1.6;margin-bottom:16px">
+      Valor usado para todos os meses que ainda não começaram. Cada mês pode ser ajustado
+      individualmente na tabela.
+    </div>
+    <label>Projeção padrão (R$)</label>
+    <input type="number" id="ppValor" step="100" min="0" value="${projecaoPadrao()}">
+    ${media > 0 ? `<div style="font-size:.78rem;color:var(--text-dim);margin-top:12px;line-height:1.5">
+      Sua média realizada é <b style="color:var(--text)">${money(media)}</b> por mês.
+      <button class="mini" style="margin-left:6px" onclick="document.getElementById('ppValor').value=${Math.round(media)}">Usar a média</button>
+    </div>` : ''}`;
+  openCModal('Projeção padrão', body, [
+    { label: 'Salvar', fn: () => {
+      const v = Number(val('ppValor'));
+      if (!(v >= 0)) { toast('Informe um valor válido.', '⚠️'); return; }
+      db.config = Object.assign({}, db.config, { projecaoPadrao: v });
+      saveDB(); closeCModal(); render();
+      toast(`Projeção padrão: <b>${money(v)}</b> por mês.`, '📈');
+    } },
+    { label: 'Cancelar', cls: 'btn-ghost', fn: closeCModal }
+  ]);
 }
 function finAnual() {
   const d = dadosAnuais(finAno);
@@ -2605,14 +2682,16 @@ function finAnual() {
   const maxBarra = Math.max(1, ...d.linhas.map(l => Math.max(l.receita, l.fixos + l.outras)));
   const mesesProjetados = d.linhas.filter(l => l.projetado).length;
 
-  const historia = d.mediaReceita === 0
-    ? 'Ainda não há faturamento registrado para servir de base. Conclua atendimentos e a projeção começa a fazer sentido.'
-    : `Faturando na média de <b class="valor-oculto">${money(d.mediaReceita)}</b> por mês, ${finAno} fecha em ` +
-      `<b class="valor-oculto">${money(d.totReceita)}</b>, com <b class="valor-oculto">${money(d.totFixos)}</b> de custos fixos. ` +
-      (d.totResultado >= 0
-        ? `Sobra estimada de <b class="valor-oculto" style="color:var(--green)">${money(d.totResultado)}</b> no ano.`
-        : `Isso dá um <b class="valor-oculto" style="color:var(--red)">déficit de ${money(Math.abs(d.totResultado))}</b> no ano.`) +
-      (mesesProjetados ? ` ${mesesProjetados} mês(es) ainda são estimativa.` : '');
+  const historia =
+    `Contando <b class="valor-oculto">${money(projecaoPadrao())}</b> por mês nos meses que ainda não começaram, ` +
+    `${finAno} fecha em <b class="valor-oculto">${money(d.totReceita)}</b>, com ` +
+    `<b class="valor-oculto">${money(d.totFixos)}</b> de custos fixos. ` +
+    (d.totResultado >= 0
+      ? `Sobra estimada de <b class="valor-oculto" style="color:var(--green)">${money(d.totResultado)}</b> no ano.`
+      : `Isso dá um <b class="valor-oculto" style="color:var(--red)">déficit de ${money(Math.abs(d.totResultado))}</b> no ano.`) +
+    (mesesProjetados ? ` ${mesesProjetados} mês(es) ainda são estimativa` : '') +
+    (d.mesesAjustados ? `, ${d.mesesAjustados} com valor ajustado por você.` : mesesProjetados ? '.' : '') +
+    (d.mediaReceita > 0 ? ` Sua média realizada é <b class="valor-oculto">${money(d.mediaReceita)}</b>.` : '');
 
   return `
   <div class="periodo-nav" style="margin:0 0 16px">
@@ -2620,6 +2699,7 @@ function finAnual() {
     <button class="cal-nav-btn" onclick="setFinAno(${finAno + 1})" title="Próximo ano">›</button>
     <div class="pn-titulo" style="text-transform:none">Ano de ${finAno}</div>
     ${finAno === anoAtual ? '' : `<button class="mini" onclick="setFinAno(${anoAtual})">Ano atual</button>`}
+    <button class="mini" onclick="openProjecaoPadrao()">Projeção: ${moneyShort(projecaoPadrao())}/mês</button>
   </div>
 
   <div class="analise" style="margin-bottom:16px">
@@ -2664,12 +2744,13 @@ function finAnual() {
 
   <div class="tbl-wrap">
     <div class="tbl-header"><div class="tbl-title">Detalhe de ${finAno}</div>
-      <div style="font-size:.76rem;color:var(--text-dim)">toque num mês para abrir</div></div>
+      <div style="font-size:.76rem;color:var(--text-dim)">mês estimado: toque para ajustar a projeção</div></div>
     <div class="tbl-scroll"><table>
       <thead><tr><th>Mês</th><th>Faturamento</th><th>Custos fixos</th><th>Outras despesas</th><th>Resultado</th></tr></thead>
       <tbody>
-        ${d.linhas.map(l => `<tr onclick="setFinTab('mov');setFinMes('${l.mk}')">
-          <td style="text-transform:capitalize"><b>${MES_LONGO[Number(l.mk.slice(5)) - 1]}</b>${l.projetado ? ' <span class="tag neutro">estimado</span>' : ''}</td>
+        ${d.linhas.map(l => `<tr onclick="${l.projetado ? `openProjecaoMes('${l.mk}')` : `setFinTab('mov');setFinMes('${l.mk}')`}">
+          <td style="text-transform:capitalize"><b>${MES_LONGO[Number(l.mk.slice(5)) - 1]}</b>${
+            l.projetado ? (l.ajustada ? ' <span class="tag brass">ajustado</span>' : ' <span class="tag neutro">estimado</span>') : ''}</td>
           <td class="valor-oculto" style="color:var(--green)">${money(l.receita)}</td>
           <td class="valor-oculto" style="color:var(--red)">${money(l.fixos)}</td>
           <td class="valor-oculto" style="color:var(--red)">${money(l.outras)}</td>
@@ -3219,7 +3300,8 @@ function openConfig() {
       <div><label>Fechamento</label><input type="time" id="cFecha" value="${c.fechamento}" step="3600"></div>
       <div><label>Dias p/ cliente inativo</label><input type="number" id="cInat" min="1" value="${c.inativoDias}"></div>
       <div><label>Pontos por atendimento</label><input type="number" id="cPtsC" min="0" value="${c.pontosPorCorte}"></div>
-      <div class="full"><label>Pontos para resgate</label><input type="number" id="cPtsR" min="1" value="${c.pontosResgate}"></div>
+      <div><label>Pontos para resgate</label><input type="number" id="cPtsR" min="1" value="${c.pontosResgate}"></div>
+      <div><label>Projeção padrão (R$/mês)</label><input type="number" id="cProj" min="0" step="100" value="${c.projecaoPadrao != null ? c.projecaoPadrao : 5000}"></div>
     </div>
     <div class="det-sep"></div>
     <span style="display:block;font-size:.66rem;text-transform:uppercase;letter-spacing:1.4px;color:var(--text-mute);font-weight:700;margin-bottom:10px">Backup dos dados</span>
@@ -3252,7 +3334,8 @@ function salvarConfig() {
     abertura: abre, fechamento: fecha,
     inativoDias: Number(val('cInat')) || 45,
     pontosPorCorte: Number(val('cPtsC')) || 0,
-    pontosResgate: Number(val('cPtsR')) || 10
+    pontosResgate: Number(val('cPtsR')) || 10,
+    projecaoPadrao: Math.max(0, Number(val('cProj')) || 0)
   });
   saveDB(); closeCModal(); applyBrand(); render();
   toast('Configurações salvas.', '⚙️');
