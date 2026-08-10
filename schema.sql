@@ -54,7 +54,7 @@ create table if not exists agendamentos (
   status           text not null default 'agendado'
                      check (status in ('agendado','confirmado','concluido','cancelado','faltou')),
   obs              text,
-  forma_pag        text check (forma_pag in ('pix','dinheiro','cartao','pacote','boleto')),
+  forma_pag        text check (forma_pag in ('pix','dinheiro','cartao','pacote','boleto','permuta')),
   -- snapshot gravado na conclusão (evita recalcular o histórico se preço/comissão mudar depois)
   valor            numeric(10,2),
   comissao_pct     numeric(5,2),
@@ -74,7 +74,7 @@ create table if not exists financeiro (
   categoria      text not null default 'Geral',
   descricao      text not null,
   valor          numeric(10,2) not null,
-  forma_pag      text check (forma_pag in ('pix','dinheiro','cartao','pacote','boleto')),
+  forma_pag      text check (forma_pag in ('pix','dinheiro','cartao','pacote','boleto','permuta')),
   auto           boolean not null default false,   -- true = gerado pela conclusão de um atendimento
   agendamento_id uuid references agendamentos(id) on delete cascade,
   created_at     timestamptz not null default now()

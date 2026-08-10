@@ -739,7 +739,9 @@ const nomeSrv = id => (getSrv(id) || {}).nome || 'Serviço removido';
 const precoSrv = id => (getSrv(id) || {}).preco || 0;
 
 const ST_LABEL = { agendado: 'Agendado', confirmado: 'Confirmado', concluido: 'Concluído', cancelado: 'Cancelado', faltou: 'Faltou' };
-const PAG_LABEL = { pix: 'PIX', dinheiro: 'Dinheiro', cartao: 'Cartão', pacote: 'Pacote', boleto: 'Boleto' };
+const PAG_LABEL = { pix: 'PIX', dinheiro: 'Dinheiro', cartao: 'Cartão', pacote: 'Pacote', boleto: 'Boleto', permuta: 'Permuta / cortesia' };
+/* formas que não entram como receita: o serviço foi prestado, mas não entrou dinheiro */
+const SEM_RECEITA = ['pacote', 'permuta'];
 const stTag = st => `<span class="tag st-${st}">${ST_LABEL[st] || st}</span>`;
 
 /* Dados iniciais reais da barbearia. Nada de exemplo/fictício aqui:
@@ -885,7 +887,7 @@ async function sincronizar() {
   const falhas = [];
   const faltaNoBanco = [];
   /* tabela/coluna que ainda não existe no banco não pode derrubar o resto da sincronização */
-  const ehEstruturaFaltando = err => ['PGRST205', 'PGRST204', '42P01', '42703'].includes(err.code);
+  const ehEstruturaFaltando = err => ['PGRST205', 'PGRST204', '42P01', '42703', '23514'].includes(err.code);
 
   for (const chave of COLECOES) {
     const m = MAP[chave];
@@ -2188,9 +2190,17 @@ function openApptForm(pre) {
       <div>
         <label>Status</label>
         <select id="fStatus">
-          ${Object.keys(ST_LABEL).map(k => `<option value="${k}"${(ag ? ag.status : 'agendado') === k ? ' selected' : ''}>${ST_LABEL[k]}</option>`).join('')}
+          ${Object.keys(ST_LABEL)
+            /* "Concluído" fica fora daqui de propósito: concluir tem que passar pelo botão
+               do atendimento, que pergunta a forma de pagamento, lança a receita e credita
+               os pontos. Escolher por este menu deixava um concluído sem faturamento. */
+            .filter(k => k !== 'concluido' || (ag && ag.status === 'concluido'))
+            .map(k => `<option value="${k}"${(ag ? ag.status : 'agendado') === k ? ' selected' : ''}>${ST_LABEL[k]}</option>`).join('')}
         </select>
       </div>
+      ${ag && ag.status === 'concluido' ? '' : `<div class="full" style="font-size:.75rem;color:var(--text-mute);margin-top:-6px">
+        Para concluir e lançar a receita, use o botão <b>Concluir atendimento</b> ao abrir o atendimento.
+      </div>`}
       <div><label>Data</label><input type="date" id="fData" value="${data}"></div>
       <div><label>Hora</label><input type="time" id="fHora" value="${hora}" step="300"></div>
       <div class="full"><label>Observações</label><textarea id="fObs" placeholder="Preferências, combinados...">${esc(ag ? ag.obs : '')}</textarea></div>
@@ -2295,10 +2305,12 @@ function concluir(id) {
       no valor de <b style="color:var(--accent-bright)">${money(s.preco)}</b>.
     </div>
     <label>Forma de pagamento</label>
-    <select id="fPag">
+    <select id="fPag" onchange="avisoSemReceita()">
       <option value="pix">PIX</option><option value="dinheiro">Dinheiro</option>
       <option value="cartao">Cartão</option><option value="pacote">Pacote (já pago)</option>
-    </select>`;
+      <option value="permuta">Permuta / cortesia</option>
+    </select>
+    <div id="avisoPag" style="font-size:.78rem;color:var(--text-mute);margin-top:10px;line-height:1.5"></div>`;
   openCModal('Concluir atendimento', body, [
     { label: 'Confirmar', fn: () => {
       const forma = val('fPag');
@@ -2310,7 +2322,7 @@ function concluir(id) {
       a.comissaoPct = Number(prof.comissao) || 0;
       a.duracaoMin = Number(s.duracao) || 0;
       a.concluidaEm = new Date().toISOString();
-      if (forma !== 'pacote') {
+      if (!SEM_RECEITA.includes(forma)) {
         db.financeiro.push({
           id: uid(), data: a.data, tipo: 'receita', categoria: s.tipo === 'produto' ? 'Produtos' : 'Atendimento',
           descricao: `${s.nome} — ${c ? c.nome : '—'}`, valor: s.preco, formaPag: forma,
@@ -2324,10 +2336,21 @@ function concluir(id) {
         if (c.pontos >= resgate) msgExtra = `<br><b>${esc(firstName(c.nome))} atingiu ${c.pontos} pontos</b> — resgate liberado!`;
       }
       saveDB(); closeCModal(); closeDrawer(); render();
-      toast(`Atendimento concluído · receita de <b>${money(s.preco)}</b> lançada.${msgExtra}`, '✅');
+      toast(SEM_RECEITA.includes(forma)
+        ? `Atendimento concluído como <b>${PAG_LABEL[forma]}</b> — sem lançar receita.${msgExtra}`
+        : `Atendimento concluído · receita de <b>${money(s.preco)}</b> lançada.${msgExtra}`, '✅');
     } },
     { label: 'Voltar', cls: 'btn-ghost', fn: closeCModal }
   ]);
+  avisoSemReceita();
+}
+function avisoSemReceita() {
+  const el = document.getElementById('avisoPag');
+  if (!el) return;
+  const forma = val('fPag');
+  el.innerHTML = SEM_RECEITA.includes(forma)
+    ? `O atendimento entra no histórico e conta pontos de fidelidade, mas <b>não gera receita</b> no financeiro.`
+    : '';
 }
 
 /* ══════════════════════════════════════════════════════════════
