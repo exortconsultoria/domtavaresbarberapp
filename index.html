@@ -443,11 +443,14 @@
   .fab-btn:hover { background: var(--accent-bright); }
   .fab-btn:hover { transform: translateY(-2px); }
   .fab-btn:active { transform: translateY(0); }
+  /* escondido = fora da tela E invisível: só o translate não basta, porque no celular
+     o toast fica logo acima da barra inferior e acabava cobrindo ela */
   .toast { position: fixed; bottom: 28px; left: 28px; z-index: 200; max-width: 340px;
     background: var(--surface); border: 1px solid var(--accent); border-radius: var(--radius); padding: 13px 18px;
     display: flex; align-items: center; gap: 12px; box-shadow: var(--shadow-lg);
-    transform: translateY(160%); transition: transform .35s ease; }
-  .toast.show { transform: translateY(0); }
+    transform: translateY(160%); opacity: 0; visibility: hidden; pointer-events: none;
+    transition: transform .35s ease, opacity .25s ease; }   /* visibility troca na hora: não pode ficar sobrando em cima da barra */
+  .toast.show { transform: translateY(0); opacity: 1; visibility: visible; pointer-events: auto; }
   .toast .ico { font-size: 1.4rem; }
   .toast .tx { font-size: .84rem; line-height: 1.4; }
 
@@ -531,7 +534,7 @@
     <div class="sub" id="loginSub">Entre para acessar sua barbearia</div>
     <form id="loginForm" onsubmit="return fazerLogin(event)">
       <label>Usuário</label>
-      <input type="text" id="loginUsuario" autocomplete="username" placeholder="tavares" required>
+      <input type="text" id="loginUsuario" autocomplete="username" placeholder="lihn.tavares" required>
       <label>Senha</label>
       <input type="password" id="loginSenha" autocomplete="current-password" required>
       <button class="btn" type="submit" id="loginBtn">Entrar</button>
@@ -754,7 +757,7 @@ function dadosIniciais() {
     clientes: [
       { id: uid(), nome: 'João Campos', tel: '81999493004', email: '', nasc: '1997-12-16', pontos: 0, obs: '', cadastro: todayISO() }
     ],
-    agendamentos: [], financeiro: [], metas: [], msgLog: [],
+    agendamentos: [], financeiro: [], metas: [], custosFixos: [], msgLog: [],
     config: Object.assign({}, CONFIG_PADRAO),
     _upd: Date.now()
   };
@@ -772,7 +775,7 @@ function loadDB() {
   saveDB();
 }
 function normalizeDB() {
-  const base = { profissionais: [], servicos: [], clientes: [], agendamentos: [], financeiro: [], metas: [], msgLog: [] };
+  const base = { profissionais: [], servicos: [], clientes: [], agendamentos: [], financeiro: [], metas: [], custosFixos: [], msgLog: [] };
   Object.keys(base).forEach(k => { if (!Array.isArray(db[k])) db[k] = base[k]; });
   db.config = Object.assign({}, CONFIG_PADRAO, db.config || {});
 }
@@ -841,13 +844,18 @@ const MAP = {
   financeiro: { tabela: 'financeiro',
     toRow: o => ({ id: o.id, data: o.data, tipo: o.tipo, categoria: o.categoria || 'Geral', descricao: o.descricao,
                    valor: num(o.valor) || 0, forma_pag: txt(o.formaPag), auto: !!o.auto,
-                   agendamento_id: o.agendamentoId || null }),
+                   agendamento_id: o.agendamentoId || null, custo_fixo_id: o.custoFixoId || null }),
     fromRow: r => ({ id: r.id, data: r.data, tipo: r.tipo, categoria: r.categoria, descricao: r.descricao,
                      valor: Number(r.valor) || 0, formaPag: r.forma_pag, auto: !!r.auto,
-                     agendamentoId: r.agendamento_id || undefined }) },
+                     agendamentoId: r.agendamento_id || undefined, custoFixoId: r.custo_fixo_id || undefined }) },
   metas: { tabela: 'metas',
     toRow: o => ({ id: o.id, mes: o.mes, valor: num(o.valor) || 0 }),
     fromRow: r => ({ id: r.id, mes: r.mes, valor: Number(r.valor) || 0 }) },
+  custosFixos: { tabela: 'custos_fixos',
+    toRow: o => ({ id: o.id, nome: o.nome, categoria: o.categoria || 'Geral', valor: num(o.valor) || 0,
+                   dia_venc: num(o.diaVenc) || 5, ativo: !!o.ativo }),
+    fromRow: r => ({ id: r.id, nome: r.nome, categoria: r.categoria, valor: Number(r.valor) || 0,
+                     diaVenc: Number(r.dia_venc) || 5, ativo: !!r.ativo }) },
   msgLog: { tabela: 'mensagens_enviadas',
     toRow: o => ({ id: o.id, cliente_id: o.clienteId, segmento: o.seg, data: o.data }),
     fromRow: r => ({ id: r.id, clienteId: r.cliente_id, seg: r.segmento, data: r.data }) }
@@ -874,9 +882,14 @@ function agendarSync() {
 async function sincronizar() {
   if (!sb || sbStatus !== 'online' || !nuvem) return;
   syncEstado = 'enviando'; updateSyncChip();
-  try {
-    for (const chave of COLECOES) {
-      const m = MAP[chave];
+  const falhas = [];
+  const faltaNoBanco = [];
+  /* tabela/coluna que ainda não existe no banco não pode derrubar o resto da sincronização */
+  const ehEstruturaFaltando = err => ['PGRST205', 'PGRST204', '42P01', '42703'].includes(err.code);
+
+  for (const chave of COLECOES) {
+    const m = MAP[chave];
+    try {
       const atuais = db[chave] || [];
       const antes = new Map((nuvem[chave] || []).map(o => [o.id, JSON.stringify(m.toRow(o))]));
       const linhas = atuais.filter(o => antes.get(o.id) !== JSON.stringify(m.toRow(o)));
@@ -885,22 +898,36 @@ async function sincronizar() {
 
       if (linhas.length) {
         const { error } = await sb.from(m.tabela).upsert(linhas.map(m.toRow));
-        if (error) throw new Error(`${m.tabela}: ${error.message}`);
+        if (error) throw error;
       }
       if (apagar.length) {
         const { error } = await sb.from(m.tabela).delete().in('id', apagar);
-        if (error) throw new Error(`${m.tabela} (apagar): ${error.message}`);
+        if (error) throw error;
       }
+      nuvem[chave] = JSON.parse(JSON.stringify(atuais));      // só marca como sincronizado o que deu certo
+    } catch (e) {
+      if (ehEstruturaFaltando(e)) faltaNoBanco.push(m.tabela);
+      else falhas.push(`${m.tabela}: ${e.message || e}`);
     }
+  }
+  try {
     if (JSON.stringify(configToRow(db.config)) !== JSON.stringify(configToRow(nuvem.config || {}))) {
       const { error } = await sb.from('configuracoes').upsert(configToRow(db.config));
-      if (error) throw new Error(`configuracoes: ${error.message}`);
+      if (error) throw error;
+      nuvem.config = JSON.parse(JSON.stringify(db.config));
     }
-    nuvem = JSON.parse(JSON.stringify({ ...COLECOES.reduce((a, k) => (a[k] = db[k], a), {}), config: db.config }));
-    syncEstado = 'ok';
   } catch (e) {
+    if (ehEstruturaFaltando(e)) faltaNoBanco.push('configuracoes'); else falhas.push(`configuracoes: ${e.message || e}`);
+  }
+
+  if (faltaNoBanco.length) {
     syncEstado = 'erro';
-    toast(`Não consegui salvar na nuvem: ${esc(e.message)}<br><small>Os dados estão salvos neste aparelho.</small>`, '⚠️');
+    toast(`Falta criar no banco: <b>${esc([...new Set(faltaNoBanco)].join(', '))}</b>.<br><small>Rode o schema.sql atualizado no Supabase. Até lá isso fica salvo só neste aparelho.</small>`, '🗄️');
+  } else if (falhas.length) {
+    syncEstado = 'erro';
+    toast(`Não consegui salvar tudo na nuvem: ${esc(falhas[0])}<br><small>Os dados estão salvos neste aparelho.</small>`, '⚠️');
+  } else {
+    syncEstado = 'ok';
   }
   updateSyncChip();
 }
@@ -908,7 +935,8 @@ async function sincronizar() {
 /* baixa tudo do Supabase para dentro do `db` */
 async function baixarDaNuvem() {
   const res = await Promise.all(COLECOES.map(k => sb.from(MAP[k].tabela).select('*')));
-  const erro = res.find(r => r.error);
+  /* tabela ainda não criada volta vazia em vez de derrubar a leitura inteira */
+  const erro = res.find(r => r.error && !['PGRST205', '42P01'].includes(r.error.code));
   if (erro) throw new Error(erro.error.message);
   const baixado = {};
   COLECOES.forEach((k, i) => { baixado[k] = (res[i].data || []).map(MAP[k].fromRow); });
@@ -1067,9 +1095,11 @@ function renderCadastros() {
     <button class="mtab ${cadTab === 'clientes' ? 'active' : ''}" onclick="setCadTab('clientes')">Clientes</button>
     <button class="mtab ${cadTab === 'servicos' ? 'active' : ''}" onclick="setCadTab('servicos')">Produtos</button>
     <button class="mtab ${cadTab === 'equipe' ? 'active' : ''}" onclick="setCadTab('equipe')">Equipe</button>
+    <button class="mtab ${cadTab === 'custos' ? 'active' : ''}" onclick="setCadTab('custos')">Custos fixos</button>
     <button class="mtab ${cadTab === 'metas' ? 'active' : ''}" onclick="setCadTab('metas')">Metas</button>
   </div>
-  ${cadTab === 'clientes' ? renderClientes() : cadTab === 'servicos' ? renderServicos() : cadTab === 'equipe' ? renderProfissionais() : finMetas()}`;
+  ${cadTab === 'clientes' ? renderClientes() : cadTab === 'servicos' ? renderServicos()
+    : cadTab === 'equipe' ? renderProfissionais() : cadTab === 'custos' ? renderCustosFixos() : finMetas()}`;
 }
 
 /* ─────────── Métricas ─────────── */
@@ -1726,6 +1756,135 @@ function renderServicos() {
 /* ══════════════════════════════════════════════════════════════
    VIEW: Profissionais
    ══════════════════════════════════════════════════════════════ */
+/* ══════════════════════════════════════════════════════════════
+   Custos fixos — as contas que chegam todo mês (aluguel, energia, água...).
+   Ficam cadastrados uma vez; a cada mês o app lança de uma vez só no
+   financeiro, sem duplicar o que já foi lançado.
+   ══════════════════════════════════════════════════════════════ */
+const custosAtivos = () => (db.custosFixos || []).filter(c => c.ativo);
+const totalCustosFixos = () => somaBy(custosAtivos(), c => c.valor);
+/* custos já lançados no mês corrente */
+const custosLancadosNoMes = (mk) => new Set(
+  db.financeiro.filter(f => f.custoFixoId && monthKey(f.data) === (mk || curMonthKey())).map(f => f.custoFixoId)
+);
+function custosPendentes(mk) {
+  const jaFoi = custosLancadosNoMes(mk);
+  return custosAtivos().filter(c => !jaFoi.has(c.id));
+}
+function lancarCustosDoMes() {
+  const mk = curMonthKey();
+  const pendentes = custosPendentes(mk);
+  if (!pendentes.length) { toast('Todos os custos deste mês já foram lançados.', '👍'); return; }
+  const total = somaBy(pendentes, c => c.valor);
+  openCModal('Lançar custos do mês', `
+    <div style="font-size:.86rem;color:var(--text-dim);line-height:1.6;margin-bottom:14px">
+      Vou lançar <b style="color:var(--text)">${pendentes.length} despesa(s)</b> de
+      ${fmtMonth(mk)}, somando <b style="color:var(--red)">${money(total)}</b>:
+    </div>
+    ${pendentes.map(c => `<div class="li"><div class="lbody">
+        <div class="lt">${esc(c.nome)}</div><div class="lm">vence dia ${c.diaVenc} · ${esc(c.categoria)}</div>
+      </div><div class="lend">${money(c.valor)}</div></div>`).join('')}`, [
+    { label: 'Lançar', fn: () => {
+      const ultimoDia = new Date(Number(mk.slice(0, 4)), Number(mk.slice(5, 7)), 0).getDate();
+      pendentes.forEach(c => {
+        const dia = Math.min(Number(c.diaVenc) || 5, ultimoDia);   // dia 31 em mês de 30 não pode virar data inválida
+        db.financeiro.push({
+          id: uid(), data: `${mk}-${pad2(dia)}`, tipo: 'despesa', categoria: c.categoria || 'Geral',
+          descricao: c.nome, valor: c.valor, formaPag: null, auto: false, custoFixoId: c.id
+        });
+      });
+      saveDB(); closeCModal(); render();
+      toast(`${pendentes.length} custo(s) lançado(s) — <b>${money(total)}</b>.`, '📌');
+    } },
+    { label: 'Cancelar', cls: 'btn-ghost', fn: closeCModal }
+  ]);
+}
+function renderCustosFixos() {
+  const lista = (db.custosFixos || []).slice().sort((a, b) => (a.diaVenc - b.diaVenc) || a.nome.localeCompare(b.nome));
+  const mk = curMonthKey();
+  const pendentes = custosPendentes(mk);
+  const m = metrics();
+  return `
+  <div class="dataview-bar">
+    <span style="font-size:.8rem;color:var(--text-dim)">Contas que se repetem todo mês. Cadastre uma vez e lance de uma tacada só.</span>
+    <button class="btn" style="margin-left:auto" onclick="openCustoForm()">+ Novo custo fixo</button>
+  </div>
+  <div class="m-cards m-cards-3" style="margin-bottom:16px">
+    ${card(moneyShort(totalCustosFixos()), 'Total por mês', `${custosAtivos().length} conta(s) ativa(s)`, ICO.box)}
+    ${card(String(pendentes.length), 'A lançar neste mês', pendentes.length ? 'ainda não estão no financeiro' : 'tudo lançado', ICO.clock)}
+    ${card(moneyShort(Math.max(0, m.receita - totalCustosFixos())), 'Sobra sobre os fixos', `faturado ${moneyShort(m.receita)} em ${fmtMonth(mk)}`, ICO.money)}
+  </div>
+  ${pendentes.length ? `<div class="p-block" style="margin-bottom:16px;border-color:var(--accent)">
+    <span class="pb-label">Pendente de ${fmtMonth(mk)}</span>
+    <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+      <div style="flex:1;min-width:180px;font-size:.84rem;color:var(--text-dim)">
+        ${pendentes.length} conta(s) somando <b style="color:var(--text)">${money(somaBy(pendentes, c => c.valor))}</b> ainda não entraram no financeiro deste mês.
+      </div>
+      <button class="btn" onclick="lancarCustosDoMes()">Lançar no mês</button>
+    </div>
+  </div>` : ''}
+  <div class="tbl-wrap">
+    <div class="tbl-header"><div class="tbl-title">Custos cadastrados</div>
+      <div style="font-size:.76rem;color:var(--text-dim)">${lista.length} item(ns)</div></div>
+    <div class="tbl-scroll"><table>
+      <thead><tr><th>Conta</th><th>Categoria</th><th>Vence</th><th>Valor</th><th>Status</th></tr></thead>
+      <tbody>${lista.length ? lista.map(c => {
+        const lancado = custosLancadosNoMes(mk).has(c.id);
+        return `<tr onclick="openCustoForm('${c.id}')">
+          <td><b>${esc(c.nome)}</b></td>
+          <td>${esc(c.categoria || '—')}</td>
+          <td>dia ${c.diaVenc}</td>
+          <td>${money(c.valor)}</td>
+          <td>${!c.ativo ? '<span class="tag neutro">inativo</span>'
+                : lancado ? '<span class="tag pos">lançado</span>'
+                : '<span class="tag brass">a lançar</span>'}</td>
+        </tr>`;
+      }).join('') : `<tr><td colspan="5"><div class="empty-soft">Nenhum custo fixo cadastrado. Comece pelo aluguel.</div></td></tr>`}
+      </tbody>
+    </table></div>
+  </div>`;
+}
+function openCustoForm(id) {
+  const c = id ? (db.custosFixos || []).find(x => x.id === id) : null;
+  const body = `
+    <div class="form-grid">
+      <div class="full"><label>Nome da conta</label><input id="fCNome" value="${esc(c ? c.nome : '')}" placeholder="Ex.: Aluguel do ponto"></div>
+      <div><label>Categoria</label><input id="fCCat" value="${esc(c ? c.categoria : '')}" placeholder="Aluguel, Energia, Água..."></div>
+      <div><label>Valor (R$)</label><input type="number" id="fCVal" step="0.01" min="0" value="${c ? c.valor : ''}"></div>
+      <div><label>Vence no dia</label><input type="number" id="fCDia" min="1" max="31" value="${c ? c.diaVenc : 5}"></div>
+      <div><label>Situação</label>
+        <select id="fCAtivo"><option value="1"${!c || c.ativo ? ' selected' : ''}>Ativo</option><option value="0"${c && !c.ativo ? ' selected' : ''}>Inativo</option></select>
+      </div>
+    </div>
+    <div style="font-size:.78rem;color:var(--text-mute);margin-top:14px;line-height:1.5">
+      Cadastrar aqui não lança nada sozinho. Todo mês você aperta <b>Lançar no mês</b> e o app joga
+      as contas no financeiro de uma vez.
+    </div>`;
+  const actions = [{ label: c ? 'Salvar' : 'Cadastrar', fn: () => salvarCusto(id) }];
+  if (c) actions.push({ label: 'Excluir', cls: 'btn-danger', fn: () => delCusto(id) });
+  actions.push({ label: 'Cancelar', cls: 'btn-ghost', fn: closeDrawer });
+  openDrawer(c ? 'Editar custo fixo' : 'Novo custo fixo', body, actions);
+}
+function salvarCusto(id) {
+  const nome = val('fCNome').trim(), valor = Number(val('fCVal'));
+  if (!nome) { toast('Dê um nome para a conta.', '⚠️'); return; }
+  if (!(valor > 0)) { toast('Informe um valor maior que zero.', '⚠️'); return; }
+  const dia = Math.min(31, Math.max(1, Number(val('fCDia')) || 5));
+  const dados = { nome, categoria: val('fCCat').trim() || 'Geral', valor, diaVenc: dia, ativo: val('fCAtivo') === '1' };
+  if (!Array.isArray(db.custosFixos)) db.custosFixos = [];
+  if (id) Object.assign(db.custosFixos.find(x => x.id === id), dados);
+  else db.custosFixos.push(Object.assign({ id: uid() }, dados));
+  saveDB(); closeDrawer(); render();
+  toast(id ? 'Custo atualizado.' : `<b>${esc(nome)}</b> cadastrado.`, '🧾');
+}
+function delCusto(id) {
+  const usados = db.financeiro.filter(f => f.custoFixoId === id).length;
+  db.custosFixos = db.custosFixos.filter(c => c.id !== id);
+  db.financeiro.forEach(f => { if (f.custoFixoId === id) f.custoFixoId = undefined; });
+  saveDB(); closeDrawer(); render();
+  toast(usados ? `Custo excluído. Os ${usados} lançamento(s) já feitos continuam no financeiro.` : 'Custo excluído.', '🗑️');
+}
+
 function renderProfissionais() {
   const dados = comissoesPorProf();
   return `
@@ -1809,6 +1968,16 @@ function finMov() {
         </div>`).join('') : `<div class="empty-soft">Sem receitas no mês.</div>`}
     </div>
   </div>
+  ${custosPendentes(m.mk).length ? `<div class="p-block" style="margin-top:16px;border-color:var(--accent)">
+    <span class="pb-label">Custos fixos de ${fmtMonth(m.mk)}</span>
+    <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+      <div style="flex:1;min-width:180px;font-size:.84rem;color:var(--text-dim)">
+        ${custosPendentes(m.mk).length} conta(s) fixa(s) somando
+        <b style="color:var(--text)">${money(somaBy(custosPendentes(m.mk), c => c.valor))}</b> ainda não lançadas.
+      </div>
+      <button class="btn" onclick="lancarCustosDoMes()">Lançar no mês</button>
+    </div>
+  </div>` : ''}
   <div class="tbl-wrap" style="margin-top:16px">
     <div class="tbl-header">
       <div class="tbl-title">Lançamentos de ${fmtMonth(m.mk)}</div>
@@ -2546,7 +2715,7 @@ function toggleFullscreen() {
    O Supabase autentica por e-mail, mas a tela pede "usuário" — o e-mail
    fica só aqui e nunca aparece na interface. */
 const USUARIOS = {
-  'tavares': 'jabcampos97+tavares@gmail.com',   // o dono da barbearia
+  'lihn.tavares': 'lihn.stf@hotmail.com',       // o dono da barbearia
   'joao.campos': 'jabcampos97@gmail.com'        // administrador
 };
 /* enquanto o usuário não trocar a senha provisória, o app não abre */

@@ -89,6 +89,19 @@ create table if not exists metas (
   created_at timestamptz not null default now()
 );
 
+-- ─────────── custos fixos (recorrentes todo mês) ───────────
+create table if not exists custos_fixos (
+  id         uuid primary key default gen_random_uuid(),
+  nome       text not null,
+  categoria  text not null default 'Geral',
+  valor      numeric(10,2) not null,
+  dia_venc   integer not null default 5 check (dia_venc between 1 and 31),
+  ativo      boolean not null default true,
+  created_at timestamptz not null default now()
+);
+-- liga o lançamento gerado ao custo fixo que o originou (evita lançar 2x no mesmo mês)
+alter table financeiro add column if not exists custo_fixo_id uuid references custos_fixos(id) on delete set null;
+
 -- ─────────── log de disparos de WhatsApp ───────────
 create table if not exists mensagens_enviadas (
   id         uuid primary key default gen_random_uuid(),
@@ -120,6 +133,7 @@ insert into configuracoes (id) values (true) on conflict (id) do nothing;
 -- Por isso: RLS travado para authenticated, nada liberado para anon.
 -- Isso exige login (Supabase Auth) no app antes de ir ao ar — ver nota abaixo.
 -- ════════════════════════════════════════════════════════════════
+alter table custos_fixos        enable row level security;
 alter table profissionais       enable row level security;
 alter table servicos            enable row level security;
 alter table clientes            enable row level security;
@@ -134,7 +148,7 @@ declare t text;
 begin
   for t in select unnest(array[
     'profissionais','servicos','clientes','agendamentos',
-    'financeiro','metas','mensagens_enviadas','configuracoes'
+    'financeiro','metas','mensagens_enviadas','configuracoes','custos_fixos'
   ]) loop
     if not exists (
       select 1 from pg_policies where tablename = t and policyname = 'somente_dono'
