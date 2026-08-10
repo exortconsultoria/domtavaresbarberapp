@@ -616,7 +616,8 @@
     <div class="sub" id="loginSub">Entre para acessar sua barbearia</div>
     <form id="loginForm" onsubmit="return fazerLogin(event)">
       <label>Usuário</label>
-      <input type="text" id="loginUsuario" autocomplete="username" placeholder="lihn.tavares" required>
+      <!-- sem placeholder: a tela é pública e um exemplo entregaria um usuário válido -->
+      <input type="text" id="loginUsuario" autocomplete="username" required>
       <label>Senha</label>
       <input type="password" id="loginSenha" autocomplete="current-password" required>
       <button class="btn" type="submit" id="loginBtn">Entrar</button>
