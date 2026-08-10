@@ -17,10 +17,11 @@
     --text: #e6eaef;
     --text-dim: #97a1ad;
     --text-mute: #6b7684;
-    --accent: #4a90d9;
-    --accent-bright: #68a6e6;
-    --accent-soft: rgba(74,144,217,.16);
-    --on-accent: #0f1418;
+    /* no escuro o azul quase preto sumiria: usa o mesmo tom clareado só o bastante */
+    --accent: #9db4cc;
+    --accent-bright: #b8c9dc;
+    --accent-soft: rgba(157,180,204,.14);
+    --on-accent: #0e1822;
     /* status: agendado(cinza claro)/confirmado(azul)/concluído(verde)/cancelado(cinza)/faltou(vermelho) */
     --st-pend: #7a8593;           --st-pend-soft: rgba(122,133,147,.20);
     --st-wait: #9aa5b3;           --st-wait-soft: rgba(154,165,179,.18);
@@ -50,9 +51,9 @@
     --text: #14181d;
     --text-dim: #58636f;
     --text-mute: #6b7684;   /* claro lava os cinzas: mute mais escuro que no dark p/ manter leitura */
-    --accent: #2f6fb0;
-    --accent-bright: #2a6199;
-    --accent-soft: rgba(47,111,176,.10);
+    --accent: #14293f;            /* azul quase preto: sóbrio, deixa verde e vermelho falarem */
+    --accent-bright: #0c1a29;
+    --accent-soft: rgba(20,41,63,.08);
     --on-accent: #ffffff;
     --st-pend: #7a8593;           --st-pend-soft: rgba(122,133,147,.14);
     /* tons de texto das pills: escurecidos até passarem 4.5:1 sobre o próprio fundo tingido */
@@ -380,7 +381,9 @@
 
   /* ── cartão compacto: ícone à esquerda, número à direita (cabe 2 por linha no celular) ── */
   .stat-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
-  @media (max-width: 900px) { .stat-grid { grid-template-columns: repeat(2, 1fr); } }
+  .stat-grid.stat-3 { grid-template-columns: repeat(3, 1fr); }
+  .stat-grid.stat-2 { grid-template-columns: repeat(2, 1fr); }
+  @media (max-width: 900px) { .stat-grid, .stat-grid.stat-3 { grid-template-columns: repeat(2, 1fr); } }
   .stat {
     display: flex; align-items: flex-start; gap: 12px; padding: 14px;
     background: var(--surface); border: 1px solid var(--border); border-radius: 14px; box-shadow: var(--shadow-sm);
@@ -671,9 +674,6 @@
         </div>
         <button class="btn-icon" id="olhoBtn" onclick="toggleValores()" title="Mostrar/esconder valores"></button>
         <button class="btn-icon" id="themeBtn" onclick="toggleTheme()" title="Alternar tema"></button>
-        <button class="btn-icon" data-mobile-hide onclick="toggleFullscreen()" title="Tela cheia">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v3M21 8V5a2 2 0 0 0-2-2h-3M3 16v3a2 2 0 0 0 2 2h3M16 21h3a2 2 0 0 0 2-2v-3"/></svg>
-        </button>
         <button class="btn" data-mobile-hide onclick="openApptForm()">Agendar</button>
       </div>
     </header>
@@ -766,8 +766,11 @@ const uid = () => (crypto.randomUUID ? crypto.randomUUID()
       const r = Math.random() * 16 | 0; return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
     }));
 const ehUUID = s => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(s || ''));
-const money = v => 'R$ ' + (Number(v) || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-const moneyShort = v => 'R$ ' + (Number(v) || 0).toLocaleString('pt-BR', { maximumFractionDigits: 0 });
+/* negativo em real é "-R$ 100,00", não "R$ -100,00" */
+const money = v => { const n = Number(v) || 0;
+  return (n < 0 ? '-R$ ' : 'R$ ') + Math.abs(n).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); };
+const moneyShort = v => { const n = Number(v) || 0;
+  return (n < 0 ? '-R$ ' : 'R$ ') + Math.abs(n).toLocaleString('pt-BR', { maximumFractionDigits: 0 }); };
 const esc = s => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 const pad2 = n => String(n).padStart(2, '0');
 /* datas SEMPRE em ISO local — nunca toISOString() (bug de fuso) */
@@ -1117,8 +1120,9 @@ const ICO = {
   mais: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg>',
   cadastros: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="8" y="2" width="8" height="4" rx="1"/><path d="M9 4H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2h-3"/><path d="M9 12l2 2 4-4"/></svg>',
   ajustes: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></svg>',
-  olho: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>',
-  olhoOff: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>'
+  /* olho discreto: traço fino e desenho menor dentro da mesma caixa */
+  olho: '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 12S6.5 5.5 12 5.5 21.5 12 21.5 12 17.5 18.5 12 18.5 2.5 12 2.5 12z"/><circle cx="12" cy="12" r="2.6"/></svg>',
+  olhoOff: '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><path d="M9.7 5.9A9.5 9.5 0 0 1 12 5.5c5.5 0 9.5 6.5 9.5 6.5a17 17 0 0 1-2.7 3.4M6.4 7.5A17.2 17.2 0 0 0 2.5 12S6.5 18.5 12 18.5c1.6 0 3-.5 4.2-1.2"/><path d="M9.9 9.9a3 3 0 0 0 4.2 4.2"/><line x1="3.5" y1="3.5" x2="20.5" y2="20.5"/></svg>'
 };
 /* Módulos: o dia a dia (Atendimentos/Clientes) separado do dinheiro (Financeiro)
    e da configuração do negócio (Ajustes). Tudo a no máximo dois toques. */
@@ -1358,20 +1362,20 @@ function renderPainel() {
   </div>
 
   <span class="section-label">Mês de ${fmtMonth(m.mk)}</span>
-  <div class="m-cards">
-    ${card(moneyShort(m.receita), 'Faturamento do mês', `${m.conclMes.length} atendimentos concluídos`, ICO.money)}
-    ${card(moneyShort(m.ticket), 'Ticket médio', 'por atendimento concluído', ICO.ticket)}
-    ${card(String(m.hoje.length), 'Atendimentos hoje', `${naoConf.length} a confirmar`, ICO.clock)}
+  <div class="stat-grid">
+    ${stat(ICO.money, 'Faturamento do mês', money(m.receita), `${m.conclMes.length} atendimentos concluídos`, 'valor', 'pos')}
+    ${stat(ICO.ticket, 'Ticket médio', money(m.ticket), 'por atendimento concluído', 'valor')}
+    ${stat(ICO.clock, 'Atendimentos hoje', String(m.hoje.length), `${naoConf.length} a confirmar`, '', naoConf.length ? 'neg' : '')}
     ${equipeSimples()
-      ? card(moneyShort(m.lucro), 'Sobra do mês', 'receitas − despesas', ICO.hand)
-      : card(moneyShort(m.comissoes), 'Comissões a pagar', 'acumulado do mês', ICO.hand)}
+      ? stat(ICO.hand, 'Sobra do mês', money(m.lucro), 'receitas − despesas', 'valor', m.lucro < 0 ? 'neg' : 'pos')
+      : stat(ICO.hand, 'Comissões a pagar', money(m.comissoes), 'acumulado do mês', 'valor', 'neg')}
   </div>
 
   ${m.meta ? `
   <div class="goal">
     <div class="gh">
       <span class="gt">Meta de ${fmtMonth(m.mk)}</span>
-      <span class="gv">${money(m.receita)} de ${money(m.meta)} · faltam <b style="color:var(--text)">${money(Math.max(0, m.meta - m.receita))}</b></span>
+      <span class="gv"><span class="valor-oculto">${money(m.receita)} de ${money(m.meta)}</span> · faltam <b class="valor-oculto" style="color:var(--text)">${money(Math.max(0, m.meta - m.receita))}</b></span>
     </div>
     <div class="gtrack"><div class="gfill" style="width:${Math.min(100, m.metaPct)}%"></div></div>
   </div>` : `
@@ -1388,7 +1392,7 @@ function renderPainel() {
             <div class="lt">${esc(nomeCli(a.clienteId))} ${stTag(a.status)}</div>
             <div class="lm">${fmtDateLong(a.data)} · ${a.hora} · ${esc(nomeSrv(a.servicoId))} · ${esc(nomeProf(a.profissionalId))}</div>
           </div>
-          <div class="lend">${money(valorDe(a))}</div>
+          <div class="lend valor-oculto">${money(valorDe(a))}</div>
         </div>`).join('') : `<div class="empty-soft">Nenhum agendamento futuro.</div>`}
     </div>
     <div class="p-block">
@@ -1921,10 +1925,10 @@ function renderClientes() {
     <input class="srch" type="search" placeholder="🔍 Buscar por nome ou telefone..." value="${esc(cliBusca)}" oninput="setCliBusca(this.value)">
     <button class="btn" style="margin-left:auto" onclick="openClienteForm()">+ Novo cliente</button>
   </div>
-  <div class="m-cards m-cards-3" style="margin-bottom:18px">
-    ${card(String(db.clientes.length), 'Clientes cadastrados', '', ICO.clientes)}
-    ${card(String(clientesInativos().length), 'Inativos', `sem visita há ${db.config.inativoDias} dias`, ICO.clock)}
-    ${card(String(db.clientes.filter(c => (c.pontos || 0) >= (db.config.pontosResgate || 10)).length), 'Com resgate disponível', `${db.config.pontosResgate} pontos`, ICO.star)}
+  <div class="stat-grid stat-3" style="margin-bottom:18px">
+    ${stat(ICO.clientes, 'Clientes cadastrados', String(db.clientes.length), 'na sua base', '')}
+    ${stat(ICO.clock, 'Sumidos', String(clientesInativos().length), `sem visita há ${db.config.inativoDias} dias`, '', clientesInativos().length ? 'neg' : 'pos')}
+    ${stat(ICO.star, 'Com resgate', String(db.clientes.filter(c => (c.pontos || 0) >= (db.config.pontosResgate || 10)).length), `${db.config.pontosResgate} pontos de fidelidade`, '', 'pos')}
   </div>
   <div class="tbl-wrap">
     <div class="tbl-header"><div class="tbl-title">Base de clientes</div></div>
@@ -2021,10 +2025,10 @@ function renderMensagens() {
     </div>
   </div>
 
-  <div class="m-cards m-cards-3" style="margin-bottom:16px">
-    ${card(String(dest.length), 'Na fila', MSG_SEGS[msgSeg].label.toLowerCase(), ICO.msg)}
-    ${card(String(enviados), 'Enviados hoje', 'neste segmento', ICO.clock)}
-    ${card(String(semTel), 'Sem telefone', 'não dá para disparar', ICO.clientes)}
+  <div class="stat-grid stat-3" style="margin-bottom:16px">
+    ${stat(ICO.msg, 'Na fila', String(dest.length), MSG_SEGS[msgSeg].label.toLowerCase(), '')}
+    ${stat(ICO.clock, 'Enviados hoje', String(enviados), 'nesta fila', '', enviados ? 'pos' : '')}
+    ${stat(ICO.clientes, 'Sem telefone', String(semTel), 'não dá para disparar', '', semTel ? 'neg' : '')}
   </div>
 
   <div class="p-block">
@@ -2128,7 +2132,7 @@ function lancarCustosDoMes() {
     </div>
     ${pendentes.map(c => `<div class="li"><div class="lbody">
         <div class="lt">${esc(c.nome)}</div><div class="lm">vence dia ${c.diaVenc} · ${esc(c.categoria)}</div>
-      </div><div class="lend">${money(c.valor)}</div></div>`).join('')}`, [
+      </div><div class="lend valor-oculto">${money(c.valor)}</div></div>`).join('')}`, [
     { label: 'Lançar', fn: () => {
       const ultimoDia = new Date(Number(mk.slice(0, 4)), Number(mk.slice(5, 7)), 0).getDate();
       pendentes.forEach(c => {
@@ -2154,10 +2158,10 @@ function renderCustosFixos() {
     <span style="font-size:.8rem;color:var(--text-dim)">Contas que se repetem todo mês. Cadastre uma vez e lance de uma tacada só.</span>
     <button class="btn" style="margin-left:auto" onclick="openCustoForm()">+ Novo custo fixo</button>
   </div>
-  <div class="m-cards m-cards-3" style="margin-bottom:16px">
-    ${card(moneyShort(totalCustosFixos()), 'Total por mês', `${custosAtivos().length} conta(s) ativa(s)`, ICO.box)}
-    ${card(String(pendentes.length), 'A lançar neste mês', pendentes.length ? 'ainda não estão no financeiro' : 'tudo lançado', ICO.clock)}
-    ${card(moneyShort(Math.max(0, m.receita - totalCustosFixos())), 'Sobra sobre os fixos', `faturado ${moneyShort(m.receita)} em ${fmtMonth(mk)}`, ICO.money)}
+  <div class="stat-grid stat-3" style="margin-bottom:16px">
+    ${stat(ICO.box, 'Total por mês', money(totalCustosFixos()), `${custosAtivos().length} conta(s) ativa(s)`, 'valor', 'neg')}
+    ${stat(ICO.clock, 'A lançar neste mês', String(pendentes.length), pendentes.length ? 'ainda fora do financeiro' : 'tudo lançado', '', pendentes.length ? 'neg' : 'pos')}
+    ${stat(ICO.money, 'Sobra sobre os fixos', money(m.receita - totalCustosFixos()), `faturado ${moneyShort(m.receita)} no mês`, 'valor', (m.receita - totalCustosFixos()) < 0 ? 'neg' : 'pos')}
   </div>
   ${pendentes.length ? `<div class="p-block" style="margin-bottom:16px;border-color:var(--accent)">
     <span class="pb-label">Pendente de ${fmtMonth(mk)}</span>
@@ -2239,7 +2243,7 @@ function renderProfissionais() {
       : `Comissões calculadas sobre os atendimentos concluídos de ${fmtMonth(curMonthKey())}.`}</span>
     <button class="btn" style="margin-left:auto" onclick="openProfForm()">+ Novo profissional</button>
   </div>
-  <div class="m-cards m-cards-3">
+  <div class="stat-grid stat-3">
     ${dados.map(d => `
       <div class="m3d" style="cursor:pointer" onclick="openProfForm('${d.p.id}')">
         <div class="ico"><span class="avatar" style="background:${d.p.cor}22;color:${d.p.cor};border-color:${d.p.cor}66">${esc(initials(d.p.nome))}</span></div>
@@ -2302,13 +2306,13 @@ function finMov() {
   });
   const maxF = Math.max(1, ...Object.values(porForma));
   return `
-  <div class="m-cards">
-    ${card(moneyShort(m.receita), 'Receitas do mês', fmtMonth(m.mk), ICO.money)}
-    ${card(moneyShort(m.despesa), 'Despesas do mês', 'lançamentos manuais', ICO.box)}
+  <div class="stat-grid">
+    ${stat(ICO.money, 'Receitas do mês', money(m.receita), fmtMonth(m.mk), 'valor', 'pos')}
+    ${stat(ICO.box, 'Despesas do mês', money(m.despesa), 'tudo que saiu', 'valor', 'neg')}
     ${equipeSimples()
-      ? card(String(m.conclMes.length), 'Atendimentos', 'concluídos no mês', ICO.hand)
-      : card(moneyShort(m.comissoes), 'Comissões', 'sobre concluídos', ICO.hand)}
-    ${card(moneyShort(m.lucro), 'Resultado', equipeSimples() ? 'receitas − despesas' : 'receitas − despesas − comissões', ICO.ticket)}
+      ? stat(ICO.hand, 'Atendimentos', String(m.conclMes.length), 'concluídos no mês', '')
+      : stat(ICO.hand, 'Comissões', money(m.comissoes), 'sobre concluídos', 'valor', 'neg')}
+    ${stat(ICO.ticket, 'Resultado', money(m.lucro), equipeSimples() ? 'receitas − despesas' : 'receitas − despesas − comissões', 'valor', m.lucro < 0 ? 'neg' : 'pos')}
   </div>
   <div class="p-row2">
     <div class="p-block" style="grid-column:1/-1">
@@ -2358,9 +2362,9 @@ function finComissoes() {
   const dados = comissoesPorProf(mk).filter(d => d.atend > 0 || d.p.ativo);
   const total = somaBy(dados, d => d.comissao);
   return `
-  <div class="m-cards m-cards-2">
-    ${card(moneyShort(total), 'Total a pagar', fmtMonth(mk), ICO.hand)}
-    ${card(String(somaBy(dados, d => d.atend)), 'Atendimentos concluídos', 'no mês', ICO.clock)}
+  <div class="stat-grid stat-2">
+    ${stat(ICO.hand, 'Total a pagar', money(total), fmtMonth(mk), 'valor', 'neg')}
+    ${stat(ICO.clock, 'Atendimentos concluídos', String(somaBy(dados, d => d.atend)), 'no mês', '')}
   </div>
   <div class="tbl-wrap" style="margin-top:16px">
     <div class="tbl-header"><div class="tbl-title">Fechamento de comissões — ${fmtMonth(mk)}</div></div>
@@ -2412,11 +2416,11 @@ function finProj() {
     </div>`;
   const base = Math.max(m.meta, projRitmo, projCarteira, m.receita, 1);
   return `
-  <div class="m-cards">
-    ${card(moneyShort(m.receita), 'Realizado', `até dia ${diaAtual}`, ICO.money)}
-    ${card(moneyShort(confirmado), 'Agenda confirmada', 'ainda por atender', ICO.clock)}
-    ${card(moneyShort(projRitmo), 'Projeção do mês', `ritmo de ${moneyShort(ritmo)}/dia`, ICO.ticket)}
-    ${card(moneyShort(lucroProj), 'Lucro projetado', 'já descontando comissões', ICO.hand)}
+  <div class="stat-grid">
+    ${stat(ICO.money, 'Realizado', money(m.receita), `até dia ${diaAtual}`, 'valor', 'pos')}
+    ${stat(ICO.clock, 'Agenda confirmada', money(confirmado), 'ainda por atender', 'valor')}
+    ${stat(ICO.ticket, 'Projeção do mês', money(projRitmo), `ritmo de ${moneyShort(ritmo)}/dia`, 'valor')}
+    ${stat(ICO.hand, 'Lucro projetado', money(lucroProj), 'já descontando custos', 'valor', lucroProj < 0 ? 'neg' : 'pos')}
   </div>
   <div class="p-block" style="margin-top:18px">
     <span class="pb-label">Realizado × Agenda × Meta — ${fmtMonth(mk)}</span>
@@ -2434,13 +2438,13 @@ function finProj() {
   </div>
   <div class="p-row2">
     <div class="p-block"><span class="pb-label">Composição do resultado projetado</span>
-      <div class="li"><div class="lbody"><div class="lt">Receita projetada</div></div><div class="lend" style="color:var(--green-bright)">${money(projRitmo)}</div></div>
-      <div class="li"><div class="lbody"><div class="lt">Despesas lançadas no mês</div></div><div class="lend" style="color:var(--red-bright)">− ${money(m.despesa)}</div></div>
-      <div class="li"><div class="lbody"><div class="lt">Comissões projetadas</div></div><div class="lend" style="color:var(--red-bright)">− ${money(comissaoProj)}</div></div>
-      <div class="li"><div class="lbody"><div class="lt"><b>Lucro projetado</b></div></div><div class="lend" style="color:var(--accent-bright)">${money(lucroProj)}</div></div>
+      <div class="li"><div class="lbody"><div class="lt">Receita projetada</div></div><div class="lend valor-oculto" style="color:var(--green)">${money(projRitmo)}</div></div>
+      <div class="li"><div class="lbody"><div class="lt">Despesas lançadas no mês</div></div><div class="lend valor-oculto" style="color:var(--red)">− ${money(m.despesa)}</div></div>
+      <div class="li"><div class="lbody"><div class="lt">Comissões projetadas</div></div><div class="lend valor-oculto" style="color:var(--red)">− ${money(comissaoProj)}</div></div>
+      <div class="li"><div class="lbody"><div class="lt"><b>Lucro projetado</b></div></div><div class="lend valor-oculto" style="color:var(--${lucroProj < 0 ? 'red' : 'green'});font-weight:800">${money(lucroProj)}</div></div>
     </div>
     <div class="p-block"><span class="pb-label">Indicadores</span>
-      <div class="li"><div class="lbody"><div class="lt">Ticket médio</div><div class="lm">atendimentos concluídos no mês</div></div><div class="lend">${money(m.ticket)}</div></div>
+      <div class="li"><div class="lbody"><div class="lt">Ticket médio</div><div class="lm">atendimentos concluídos no mês</div></div><div class="lend valor-oculto">${money(m.ticket)}</div></div>
       <div class="li"><div class="lbody"><div class="lt">Atendimentos concluídos</div><div class="lm">${diaAtual} de ${diasNoMes} dias</div></div><div class="lend">${m.conclMes.length}</div></div>
       <div class="li"><div class="lbody"><div class="lt">Média por dia corrido</div></div><div class="lend">${(m.conclMes.length / Math.max(1, diaAtual)).toFixed(1)}</div></div>
       <div class="li"><div class="lbody"><div class="lt">Margem projetada</div></div><div class="lend">${projRitmo > 0 ? pct(lucroProj, projRitmo) : 0}%</div></div>
@@ -2778,7 +2782,7 @@ function openClienteDetail(id) {
           <div class="lt">${esc(nomeSrv(a.servicoId))} ${stTag(a.status)}</div>
           <div class="lm">${fmtDateLong(a.data)} · ${a.hora} · ${esc(nomeProf(a.profissionalId))}</div>
         </div>
-        <div class="lend">${money(valorDe(a))}</div>
+        <div class="lend valor-oculto">${money(valorDe(a))}</div>
       </div>`).join('') : `<div class="empty-soft">Nenhum atendimento registrado.</div>`}`;
   openDrawer('Cliente', body, [
     { label: 'Agendar', fn: () => openApptForm() },
@@ -3088,10 +3092,6 @@ function applyBrand() {
 function toggleSidebar() {
   const collapsed = document.getElementById('appwin').classList.toggle('sidebar-collapsed');
   Store.set('domtavares_sidebar', collapsed ? '1' : '0');
-}
-function toggleFullscreen() {
-  if (!document.fullscreenElement) document.documentElement.requestFullscreen().catch(() => {});
-  else document.exitFullscreen();
 }
 
 /* ─────────── Login ───────────
