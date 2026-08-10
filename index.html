@@ -2,8 +2,16 @@
 <html lang="pt-BR">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Dom Tavares — ERP de Barbearia</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Dom Tavares — Gestão da barbearia</title>
+<!-- ícone da logo ao "adicionar à tela de início", em vez de um print da página -->
+<link rel="icon" href="logodomtavares.jpg">
+<link rel="apple-touch-icon" href="logodomtavares.jpg">
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#14293f">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Dom Tavares">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <style>
   /* Tema escuro (opcional — o padrão do app é o claro, em body.light) */
@@ -116,13 +124,14 @@
   }
   .sb-burger:hover { color: var(--accent); border-color: var(--accent); }
   .appwin.sidebar-collapsed .sb-burger { align-self: center; }
+  /* a logo já é redonda sobre fundo preto: recorte circular fecha certinho */
   .sb-logo {
-    width: 44px; height: 44px; border-radius: 50%; flex-shrink: 0;
+    width: 46px; height: 46px; border-radius: 50%; flex-shrink: 0; overflow: hidden;
     display: flex; align-items: center; justify-content: center;
-    background: var(--accent);
-    color: var(--on-accent); font-weight: 700; font-size: 1rem; letter-spacing: -.5px;
+    background: #000; color: #fff; font-weight: 700; font-size: 1rem; letter-spacing: -.5px;
     box-shadow: var(--shadow-sm);
   }
+  .sb-logo img { width: 100%; height: 100%; object-fit: cover; display: block; }
   .sb-brand { text-align: center; line-height: 1.2; }
   .sb-brand .b1 { font-family: var(--font-display); font-size: .92rem; font-weight: 700; }
   .sb-brand .b2 { font-size: .58rem; color: var(--text-mute); text-transform: uppercase; letter-spacing: 1.6px; margin-top: 2px; }
@@ -556,10 +565,11 @@
     padding: 36px 28px; width: 100%; max-width: 380px; box-shadow: var(--shadow-lg);
   }
   .login-card .lc-logo {
-    width: 52px; height: 52px; border-radius: 50%; background: var(--accent); color: var(--on-accent);
+    width: 104px; height: 104px; border-radius: 50%; overflow: hidden; background: #000; color: #fff;
     display: flex; align-items: center; justify-content: center; font-weight: 800;
-    font-family: var(--font-display); font-size: 1.1rem; margin: 0 auto 16px;
+    font-size: 1.6rem; margin: 0 auto 18px; box-shadow: var(--shadow-md);
   }
+  .login-card .lc-logo img { width: 100%; height: 100%; object-fit: cover; display: block; }
   .login-card h1 { font-size: 1.15rem; font-weight: 700; text-align: center; }
   .login-card .sub { font-size: .8rem; color: var(--text-dim); text-align: center; margin: 4px 0 24px; }
   .login-card input {
@@ -614,7 +624,7 @@
 
 <div class="login-overlay" id="loginOverlay">
   <div class="login-card">
-    <div class="lc-logo" id="loginLogo">DT</div>
+    <div class="lc-logo" id="loginLogo"><img src="logodomtavares.jpg" alt="Dom Tavares Barbearia"></div>
     <h1 id="loginNomeApp">Dom Tavares</h1>
     <div class="sub" id="loginSub">Entre para acessar sua barbearia</div>
     <form id="loginForm" onsubmit="return fazerLogin(event)">
@@ -644,7 +654,7 @@
       <button class="sb-burger" onclick="toggleSidebar()" title="Expandir/retrair menu">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
       </button>
-      <div class="sb-logo" id="sbLogo">DT</div>
+      <div class="sb-logo" id="sbLogo"><img src="logodomtavares.jpg" alt="Dom Tavares Barbearia"></div>
       <div class="sb-brand"><div class="b1" id="sbNome">Dom Tavares</div><div class="b2">Barbearia</div></div>
     </div>
     <nav class="sb-nav" id="nav"></nav>
@@ -2120,39 +2130,104 @@ function custosPendentes(mk) {
   const jaFoi = custosLancadosNoMes(mk);
   return custosAtivos().filter(c => !jaFoi.has(c.id));
 }
-function lancarCustosDoMes() {
-  const mk = curMonthKey();
+/* lista de meses 'YYYY-MM' entre dois extremos, inclusive */
+function mesesEntre(de, ate) {
+  const out = [];
+  let [ay, am] = de.split('-').map(Number);
+  const [by, bm] = ate.split('-').map(Number);
+  while (ay < by || (ay === by && am <= bm)) {
+    out.push(`${ay}-${pad2(am)}`);
+    am++; if (am > 12) { am = 1; ay++; }
+    if (out.length > 60) break;                    // trava de segurança
+  }
+  return out;
+}
+/* despesa solta do mês que é claramente esse mesmo custo (mesmo nome, mesmo valor)
+   e ainda não está vinculada — evita lançar em cima do que já foi lançado na mão */
+function despesaEquivalente(mk, custo) {
+  const norm = s => String(s || '').trim().toLowerCase();
+  const a = norm(custo.nome);
+  return db.financeiro.find(f => {
+    if (f.tipo !== 'despesa' || f.custoFixoId || monthKey(f.data) !== mk) return false;
+    if (Number(f.valor) !== Number(custo.valor)) return false;      // valor tem que bater
+    const b = norm(f.descricao);
+    return b === a || b.includes(a) || a.includes(b);               // "Aluguel" ≈ "Aluguel do ponto"
+  });
+}
+/* grava os pendentes de um mês; devolve quantos entraram e quantos foram só vinculados */
+function gravarCustosDoMes(mk) {
   const pendentes = custosPendentes(mk);
-  if (!pendentes.length) { toast('Todos os custos deste mês já foram lançados.', '👍'); return; }
-  const total = somaBy(pendentes, c => c.valor);
-  openCModal('Lançar custos do mês', `
-    <div style="font-size:.86rem;color:var(--text-dim);line-height:1.6;margin-bottom:14px">
-      Vou lançar <b style="color:var(--text)">${pendentes.length} despesa(s)</b> de
-      ${fmtMonth(mk)}, somando <b style="color:var(--red)">${money(total)}</b>:
+  if (!pendentes.length) return { qtd: 0, total: 0, vinculados: 0 };
+  const ultimoDia = new Date(Number(mk.slice(0, 4)), Number(mk.slice(5, 7)), 0).getDate();
+  let vinculados = 0;
+  pendentes.forEach(c => {
+    const jaExiste = despesaEquivalente(mk, c);
+    if (jaExiste) { jaExiste.custoFixoId = c.id; vinculados++; return; }   // adota em vez de duplicar
+    const dia = Math.min(Number(c.diaVenc) || 5, ultimoDia);   // dia 31 em mês de 30 não pode virar data inválida
+    db.financeiro.push({
+      id: uid(), data: `${mk}-${pad2(dia)}`, tipo: 'despesa', categoria: c.categoria || 'Geral',
+      descricao: c.nome, valor: c.valor, formaPag: null, auto: false, custoFixoId: c.id
+    });
+  });
+  return { qtd: pendentes.length, total: somaBy(pendentes, c => c.valor), vinculados };
+}
+function lancarCustosDoMes() { abrirLancamentoCustos(finMes, finMes); }
+function lancarCustosAteDezembro() {
+  const mk = curMonthKey();
+  abrirLancamentoCustos(mk, `${mk.slice(0, 4)}-12`);
+}
+function abrirLancamentoCustos(de, ate) {
+  if (!custosAtivos().length) { toast('Cadastre um custo fixo antes de lançar.', '⚠️'); return; }
+  const body = `
+    <div class="form-grid">
+      <div><label>De</label><input type="month" id="lcDe" value="${de}"></div>
+      <div><label>Até</label><input type="month" id="lcAte" value="${ate}"></div>
     </div>
-    ${pendentes.map(c => `<div class="li"><div class="lbody">
-        <div class="lt">${esc(c.nome)}</div><div class="lm">vence dia ${c.diaVenc} · ${esc(c.categoria)}</div>
-      </div><div class="lend valor-oculto">${money(c.valor)}</div></div>`).join('')}`, [
+    <div id="lcPrevia" style="margin-top:16px"></div>`;
+  openCModal('Lançar custos fixos', body, [
     { label: 'Lançar', fn: () => {
-      const ultimoDia = new Date(Number(mk.slice(0, 4)), Number(mk.slice(5, 7)), 0).getDate();
-      pendentes.forEach(c => {
-        const dia = Math.min(Number(c.diaVenc) || 5, ultimoDia);   // dia 31 em mês de 30 não pode virar data inválida
-        db.financeiro.push({
-          id: uid(), data: `${mk}-${pad2(dia)}`, tipo: 'despesa', categoria: c.categoria || 'Geral',
-          descricao: c.nome, valor: c.valor, formaPag: null, auto: false, custoFixoId: c.id
-        });
+      const d = val('lcDe'), a = val('lcAte');
+      if (!d || !a || a < d) { toast('O mês final tem que ser igual ou depois do inicial.', '⚠️'); return; }
+      let qtd = 0, total = 0, meses = 0, vinc = 0;
+      mesesEntre(d, a).forEach(mk => {
+        const res = gravarCustosDoMes(mk);
+        if (res.qtd) { meses++; qtd += res.qtd; total += res.total; vinc += res.vinculados; }
       });
+      if (!qtd) { toast('Nada a lançar: esses meses já estão todos em dia.', '👍'); return; }
       saveDB(); closeCModal(); render();
-      toast(`${pendentes.length} custo(s) lançado(s) — <b>${money(total)}</b>.`, '📌');
+      toast(`${qtd} lançamento(s) em ${meses} mês(es) — <b>${money(total)}</b>.` +
+        (vinc ? `<br><small>${vinc} já existia(m) na mão e foi(ram) aproveitado(s), sem duplicar.</small>` : ''), '📌');
     } },
     { label: 'Cancelar', cls: 'btn-ghost', fn: closeCModal }
   ]);
+  const atualizar = () => {
+    const d = val('lcDe'), a = val('lcAte');
+    const el = document.getElementById('lcPrevia');
+    if (!el) return;
+    if (!d || !a || a < d) { el.innerHTML = `<div class="empty-soft">Escolha um intervalo válido.</div>`; return; }
+    const linhas = mesesEntre(d, a).map(mk => ({ mk, p: custosPendentes(mk) }));
+    const totalGeral = somaBy(linhas, l => somaBy(l.p, c => c.valor));
+    const aLancar = somaBy(linhas, l => l.p.length);
+    el.innerHTML = `
+      <div style="font-size:.84rem;color:var(--text-dim);line-height:1.6;margin-bottom:10px">
+        ${aLancar
+          ? `Vou lançar <b style="color:var(--text)">${aLancar} despesa(s)</b> somando <b style="color:var(--red)">${money(totalGeral)}</b>. Meses já lançados são pulados.`
+          : 'Todos esses meses já estão lançados — nada será duplicado.'}
+      </div>
+      ${linhas.map(l => `<div class="li">
+        <div class="lbody"><div class="lt" style="text-transform:capitalize">${fmtMonth(l.mk)}</div>
+          <div class="lm">${l.p.length ? `${l.p.length} conta(s) a lançar` : 'já lançado'}</div></div>
+        <div class="lend valor-oculto" style="color:var(--${l.p.length ? 'red' : 'text-mute'})">${l.p.length ? money(somaBy(l.p, c => c.valor)) : '—'}</div>
+      </div>`).join('')}`;
+  };
+  ['lcDe', 'lcAte'].forEach(id => { const el = document.getElementById(id); if (el) el.onchange = atualizar; });
+  atualizar();
 }
 function renderCustosFixos() {
   const lista = (db.custosFixos || []).slice().sort((a, b) => (a.diaVenc - b.diaVenc) || a.nome.localeCompare(b.nome));
-  const mk = curMonthKey();
+  const mk = finMes;
   const pendentes = custosPendentes(mk);
-  const m = metrics();
+  const m = metrics(mk);
   return `
   <div class="dataview-bar">
     <span style="font-size:.8rem;color:var(--text-dim)">Contas que se repetem todo mês. Cadastre uma vez e lance de uma tacada só.</span>
@@ -2163,13 +2238,17 @@ function renderCustosFixos() {
     ${stat(ICO.clock, 'A lançar neste mês', String(pendentes.length), pendentes.length ? 'ainda fora do financeiro' : 'tudo lançado', '', pendentes.length ? 'neg' : 'pos')}
     ${stat(ICO.money, 'Sobra sobre os fixos', money(m.receita - totalCustosFixos()), `faturado ${moneyShort(m.receita)} no mês`, 'valor', (m.receita - totalCustosFixos()) < 0 ? 'neg' : 'pos')}
   </div>
-  ${pendentes.length ? `<div class="p-block" style="margin-bottom:16px;border-color:var(--accent)">
-    <span class="pb-label">Pendente de ${fmtMonth(mk)}</span>
-    <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
-      <div style="flex:1;min-width:180px;font-size:.84rem;color:var(--text-dim)">
-        ${pendentes.length} conta(s) somando <b style="color:var(--text)">${money(somaBy(pendentes, c => c.valor))}</b> ainda não entraram no financeiro deste mês.
-      </div>
-      <button class="btn" onclick="lancarCustosDoMes()">Lançar no mês</button>
+  ${custosAtivos().length ? `<div class="p-block" style="margin-bottom:16px;${pendentes.length ? 'border-color:var(--accent)' : ''}">
+    <span class="pb-label">Lançar no financeiro</span>
+    <div style="font-size:.84rem;color:var(--text-dim);line-height:1.5;margin-bottom:12px">
+      ${pendentes.length
+        ? `${pendentes.length} conta(s) somando <b class="valor-oculto" style="color:var(--text)">${money(somaBy(pendentes, c => c.valor))}</b> ainda não entraram em ${fmtMonth(mk)}.`
+        : `${fmtMonth(mk)} está em dia. Você pode adiantar os próximos meses para já enxergar o ano inteiro.`}
+    </div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      ${pendentes.length ? `<button class="btn" onclick="lancarCustosDoMes()">Lançar ${fmtMonth(mk).split('/')[0]}</button>` : ''}
+      <button class="${pendentes.length ? 'mini' : 'btn'}" onclick="lancarCustosAteDezembro()">Lançar até dezembro</button>
+      <button class="mini" onclick="abrirLancamentoCustos(finMes, finMes)">Escolher período…</button>
     </div>
   </div>` : ''}
   <div class="tbl-wrap">
@@ -2240,7 +2319,7 @@ function renderProfissionais() {
   <div class="dataview-bar">
     <span style="font-size:.8rem;color:var(--text-dim)">${equipeSimples()
       ? `Hoje só você atende. Quando contratar, cadastre aqui com o percentual de comissão — o app passa a fechar a conta de cada um.`
-      : `Comissões calculadas sobre os atendimentos concluídos de ${fmtMonth(curMonthKey())}.`}</span>
+      : `Comissões calculadas sobre os atendimentos concluídos de ${fmtMonth(finMes)}.`}</span>
     <button class="btn" style="margin-left:auto" onclick="openProfForm()">+ Novo profissional</button>
   </div>
   <div class="stat-grid stat-3">
@@ -2276,29 +2355,53 @@ function renderProfissionais() {
    VIEW: Financeiro
    ══════════════════════════════════════════════════════════════ */
 let finTab = 'mov';
+let finMes = curMonthKey();          // mês em foco no financeiro (filtro de mês/ano)
+let finAno = new Date().getFullYear();
 function setFinTab(t) { finTab = t; render(); }
+function setFinMes(v) { if (v) { finMes = v; render(); } }
+function finMesNav(n) {
+  let [y, m] = finMes.split('-').map(Number);
+  m += n; if (m > 12) { m = 1; y++; } if (m < 1) { m = 12; y--; }
+  finMes = `${y}-${pad2(m)}`; render();
+}
+function finMesHoje() { finMes = curMonthKey(); render(); }
+function setFinAno(v) { finAno = Number(v) || new Date().getFullYear(); render(); }
+/* barra de mês/ano usada pelas abas que olham um mês por vez */
+function seletorMes() {
+  return `<div class="periodo-nav" style="margin:0 0 16px">
+    <button class="cal-nav-btn" onclick="finMesNav(-1)" title="Mês anterior">‹</button>
+    <button class="cal-nav-btn" onclick="finMesNav(1)" title="Próximo mês">›</button>
+    <div class="pn-titulo">${fmtMonth(finMes)}</div>
+    <input type="month" class="srch" style="min-width:150px;max-width:170px" value="${finMes}" onchange="setFinMes(this.value)">
+    ${finMes === curMonthKey() ? '' : `<button class="mini" onclick="finMesHoje()">Mês atual</button>`}
+  </div>`;
+}
 function renderFinanceiro() {
+  const comMes = ['mov', 'custos', 'com'].includes(finTab);
   return `
   <div class="dataview-bar">
     <div class="modal-tabs" style="margin:0;border:none">
       <button class="mtab ${finTab === 'mov' ? 'active' : ''}" onclick="setFinTab('mov')">Entradas e saídas</button>
       <button class="mtab ${finTab === 'custos' ? 'active' : ''}" onclick="setFinTab('custos')">Custos fixos</button>
       <button class="mtab ${finTab === 'metas' ? 'active' : ''}" onclick="setFinTab('metas')">Metas</button>
-      <button class="mtab ${finTab === 'proj' ? 'active' : ''}" onclick="setFinTab('proj')">Projeções</button>
+      <button class="mtab ${finTab === 'proj' ? 'active' : ''}" onclick="setFinTab('proj')">Projeção do mês</button>
+      <button class="mtab ${finTab === 'anual' ? 'active' : ''}" onclick="setFinTab('anual')">Projeção anual</button>
       ${equipeSimples() ? '' : `<button class="mtab ${finTab === 'com' ? 'active' : ''}" onclick="setFinTab('com')">Comissões</button>`}
     </div>
   </div>
+  ${comMes ? seletorMes() : ''}
   ${finTab === 'mov' ? finMov()
     : finTab === 'custos' ? renderCustosFixos()
     : finTab === 'metas' ? finMetas()
     : finTab === 'proj' ? finProj()
+    : finTab === 'anual' ? finAnual()
     : (finTab === 'com' && !equipeSimples()) ? finComissoes()
     : finMov()}`;
 }
 function irParaMetas() { finTab = 'metas'; switchTab('financeiro'); }
 
 function finMov() {
-  const m = metrics();
+  const m = metrics(finMes);
   const list = db.financeiro.filter(f => monthKey(f.data) === m.mk).sort((a, b) => b.data.localeCompare(a.data));
   const porForma = {};
   db.financeiro.filter(f => monthKey(f.data) === m.mk && f.tipo === 'receita').forEach(f => {
@@ -2358,7 +2461,7 @@ function finMov() {
 }
 
 function finComissoes() {
-  const mk = curMonthKey();
+  const mk = finMes;
   const dados = comissoesPorProf(mk).filter(d => d.atend > 0 || d.p.ativo);
   const total = somaBy(dados, d => d.comissao);
   return `
@@ -2449,6 +2552,138 @@ function finProj() {
       <div class="li"><div class="lbody"><div class="lt">Média por dia corrido</div></div><div class="lend">${(m.conclMes.length / Math.max(1, diaAtual)).toFixed(1)}</div></div>
       <div class="li"><div class="lbody"><div class="lt">Margem projetada</div></div><div class="lend">${projRitmo > 0 ? pct(lucroProj, projRitmo) : 0}%</div></div>
     </div>
+  </div>`;
+}
+
+/* ══════════════════════════════════════════════════════════════
+   Projeção anual — o ano inteiro numa tela.
+   Mês que já passou usa o que realmente aconteceu; mês futuro usa
+   a média do que foi realizado (ou a meta, se houver) e os custos
+   fixos cadastrados, que são conhecidos de antemão.
+   ══════════════════════════════════════════════════════════════ */
+function dadosAnuais(ano) {
+  const mkAtual = curMonthKey();
+  const fixosMensais = totalCustosFixos();
+  const meses = Array.from({ length: 12 }, (_, i) => `${ano}-${pad2(i + 1)}`);
+
+  /* base para projetar: média dos meses já realizados que tiveram receita */
+  const realizados = meses.filter(mk => mk <= mkAtual).map(mk => ({
+    mk, receita: somaBy(db.financeiro.filter(f => f.tipo === 'receita' && monthKey(f.data) === mk), f => f.valor)
+  }));
+  const comReceita = realizados.filter(r => r.receita > 0);
+  const mediaReceita = comReceita.length ? somaBy(comReceita, r => r.receita) / comReceita.length : 0;
+
+  const linhas = meses.map(mk => {
+    const passado = mk < mkAtual, atual = mk === mkAtual;
+    const receitaReal = somaBy(db.financeiro.filter(f => f.tipo === 'receita' && monthKey(f.data) === mk), f => f.valor);
+    const despesaReal = somaBy(db.financeiro.filter(f => f.tipo === 'despesa' && monthKey(f.data) === mk), f => f.valor);
+    const fixosLancados = somaBy(db.financeiro.filter(f => f.custoFixoId && monthKey(f.data) === mk), f => f.valor);
+    const outrasDespesas = despesaReal - fixosLancados;      // despesas que não são custo fixo
+    const meta = (db.metas.find(m => m.mes === mk) || {}).valor || 0;
+
+    /* futuro: usa a meta se existir, senão a média realizada */
+    const receita = passado || atual ? receitaReal : (meta || mediaReceita);
+    const fixos = fixosLancados || (passado ? 0 : fixosMensais);
+    const outras = passado || atual ? outrasDespesas : 0;
+    return { mk, passado, atual, receita, receitaReal, fixos, fixosLancados, outras, meta,
+             projetado: !passado && !atual, resultado: receita - fixos - outras };
+  });
+
+  return {
+    ano, linhas, mediaReceita, fixosMensais,
+    totReceita: somaBy(linhas, l => l.receita),
+    totFixos: somaBy(linhas, l => l.fixos),
+    totOutras: somaBy(linhas, l => l.outras),
+    totResultado: somaBy(linhas, l => l.resultado),
+    realizadoReceita: somaBy(linhas.filter(l => !l.projetado), l => l.receita),
+    mesesSemFixos: linhas.filter(l => !l.passado && !l.fixosLancados).map(l => l.mk)
+  };
+}
+function finAnual() {
+  const d = dadosAnuais(finAno);
+  const anoAtual = new Date().getFullYear();
+  const maxBarra = Math.max(1, ...d.linhas.map(l => Math.max(l.receita, l.fixos + l.outras)));
+  const mesesProjetados = d.linhas.filter(l => l.projetado).length;
+
+  const historia = d.mediaReceita === 0
+    ? 'Ainda não há faturamento registrado para servir de base. Conclua atendimentos e a projeção começa a fazer sentido.'
+    : `Faturando na média de <b class="valor-oculto">${money(d.mediaReceita)}</b> por mês, ${finAno} fecha em ` +
+      `<b class="valor-oculto">${money(d.totReceita)}</b>, com <b class="valor-oculto">${money(d.totFixos)}</b> de custos fixos. ` +
+      (d.totResultado >= 0
+        ? `Sobra estimada de <b class="valor-oculto" style="color:var(--green)">${money(d.totResultado)}</b> no ano.`
+        : `Isso dá um <b class="valor-oculto" style="color:var(--red)">déficit de ${money(Math.abs(d.totResultado))}</b> no ano.`) +
+      (mesesProjetados ? ` ${mesesProjetados} mês(es) ainda são estimativa.` : '');
+
+  return `
+  <div class="periodo-nav" style="margin:0 0 16px">
+    <button class="cal-nav-btn" onclick="setFinAno(${finAno - 1})" title="Ano anterior">‹</button>
+    <button class="cal-nav-btn" onclick="setFinAno(${finAno + 1})" title="Próximo ano">›</button>
+    <div class="pn-titulo" style="text-transform:none">Ano de ${finAno}</div>
+    ${finAno === anoAtual ? '' : `<button class="mini" onclick="setFinAno(${anoAtual})">Ano atual</button>`}
+  </div>
+
+  <div class="analise" style="margin-bottom:16px">
+    <div class="an-tit">O ano de ${finAno}</div>
+    <div class="an-hist">${historia}</div>
+    <div class="stat-grid">
+      ${stat(ICO.money, 'Faturamento no ano', money(d.totReceita), `${money(d.realizadoReceita)} já realizados`, 'valor', 'pos')}
+      ${stat(ICO.box, 'Custos fixos no ano', money(d.totFixos), `${moneyShort(d.fixosMensais)}/mês cadastrados`, 'valor', 'neg')}
+      ${stat(ICO.hand, 'Outras despesas', money(d.totOutras), 'fora os custos fixos', 'valor', 'neg')}
+      ${stat(ICO.ticket, 'Resultado do ano', money(d.totResultado), 'receitas − custos − despesas', 'valor', d.totResultado < 0 ? 'neg' : 'pos')}
+    </div>
+  </div>
+
+  ${d.mesesSemFixos.length ? `<div class="p-block" style="margin-bottom:16px;border-color:var(--accent)">
+    <span class="pb-label">Custos fixos ainda não lançados</span>
+    <div style="font-size:.84rem;color:var(--text-dim);line-height:1.5;margin-bottom:12px">
+      ${d.mesesSemFixos.length} mês(es) de ${finAno} estão sem os custos fixos no financeiro. Enquanto não lançar,
+      eles entram aqui só como estimativa.
+    </div>
+    <button class="btn" onclick="abrirLancamentoCustos('${d.mesesSemFixos[0]}','${d.mesesSemFixos[d.mesesSemFixos.length - 1]}')">Lançar esses meses</button>
+  </div>` : ''}
+
+  <div class="analise" style="margin-bottom:16px">
+    <div class="an-tit">Mês a mês</div>
+    <div class="an-hist">Barra cheia é o que entra; a clara embaixo é o que sai. Mês em cinza ainda é estimativa.</div>
+    ${d.linhas.map(l => `
+      <div class="barra ${l.atual ? 'destaque' : ''}${l.projetado ? ' vazio' : ''}" style="margin-bottom:16px">
+        <div class="ba-top">
+          <span class="ba-rot" style="text-transform:capitalize">${MES_LONGO[Number(l.mk.slice(5)) - 1]}${l.atual ? ' · agora' : ''}${l.projetado ? ' · estimado' : ''}</span>
+          <span class="ba-val valor-oculto" style="color:var(--${l.resultado < 0 ? 'red' : 'green'})">${money(l.resultado)}</span>
+        </div>
+        <div class="ba-track"><div class="ba-fill" style="width:${Math.max(2, pct(l.receita, maxBarra))}%;background:var(--green)"></div></div>
+        <div class="ba-track" style="margin-top:3px;height:6px">
+          <div class="ba-fill" style="width:${Math.max(2, pct(l.fixos + l.outras, maxBarra))}%;background:var(--red)"></div>
+        </div>
+        <div style="display:flex;justify-content:space-between;font-size:.66rem;color:var(--text-mute);margin-top:3px">
+          <span class="valor-oculto">entra ${money(l.receita)}</span>
+          <span class="valor-oculto">sai ${money(l.fixos + l.outras)}</span>
+        </div>
+      </div>`).join('')}
+  </div>
+
+  <div class="tbl-wrap">
+    <div class="tbl-header"><div class="tbl-title">Detalhe de ${finAno}</div>
+      <div style="font-size:.76rem;color:var(--text-dim)">toque num mês para abrir</div></div>
+    <div class="tbl-scroll"><table>
+      <thead><tr><th>Mês</th><th>Faturamento</th><th>Custos fixos</th><th>Outras despesas</th><th>Resultado</th></tr></thead>
+      <tbody>
+        ${d.linhas.map(l => `<tr onclick="setFinTab('mov');setFinMes('${l.mk}')">
+          <td style="text-transform:capitalize"><b>${MES_LONGO[Number(l.mk.slice(5)) - 1]}</b>${l.projetado ? ' <span class="tag neutro">estimado</span>' : ''}</td>
+          <td class="valor-oculto" style="color:var(--green)">${money(l.receita)}</td>
+          <td class="valor-oculto" style="color:var(--red)">${money(l.fixos)}</td>
+          <td class="valor-oculto" style="color:var(--red)">${money(l.outras)}</td>
+          <td class="valor-oculto" style="font-weight:700;color:var(--${l.resultado < 0 ? 'red' : 'green'})">${money(l.resultado)}</td>
+        </tr>`).join('')}
+        <tr style="cursor:default;background:var(--surface-2)">
+          <td><b>Total</b></td>
+          <td class="valor-oculto" style="font-weight:700;color:var(--green)">${money(d.totReceita)}</td>
+          <td class="valor-oculto" style="font-weight:700;color:var(--red)">${money(d.totFixos)}</td>
+          <td class="valor-oculto" style="font-weight:700;color:var(--red)">${money(d.totOutras)}</td>
+          <td class="valor-oculto" style="font-weight:800;color:var(--${d.totResultado < 0 ? 'red' : 'green'})">${money(d.totResultado)}</td>
+        </tr>
+      </tbody>
+    </table></div>
   </div>`;
 }
 
@@ -3086,7 +3321,7 @@ function toggleValores() { applyValores(!document.body.classList.contains('ocult
 function applyBrand() {
   const casa = nomeBarbearia();
   document.getElementById('sbNome').textContent = casa;
-  document.getElementById('sbLogo').textContent = initials(casa) || 'DT';
+  document.getElementById('sbLogo').querySelector('img').alt = casa;
   document.title = `${casa} — Gestão da barbearia`;
 }
 function toggleSidebar() {
@@ -3195,7 +3430,7 @@ function boot() {
   applyValores(Store.get('domtavares_ocultar') === '1');
   if (Store.get('domtavares_sidebar') === '1') document.getElementById('appwin').classList.add('sidebar-collapsed');
   applyBrand();
-  document.getElementById('loginLogo').textContent = initials(nomeBarbearia()) || 'DT';
+  document.getElementById('loginLogo').querySelector('img').alt = nomeBarbearia();
   document.getElementById('loginNomeApp').textContent = nomeBarbearia();
   if (!sb) { entrarNoApp(); return; }   // sem SDK, não trava o dono fora do próprio app
   sb.auth.getSession().then(({ data }) => {

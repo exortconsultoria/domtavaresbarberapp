@@ -1,0 +1,20 @@
+{
+  "name": "Dom Tavares — Gestão da barbearia",
+  "short_name": "Dom Tavares",
+  "description": "Agenda, clientes e financeiro da barbearia Dom Tavares.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#f4f6f8",
+  "theme_color": "#14293f",
+  "lang": "pt-BR",
+  "icons": [
+    {
+      "src": "logodomtavares.jpg",
+      "sizes": "640x640",
+      "type": "image/jpeg",
+      "purpose": "any"
+    }
+  ]
+}
