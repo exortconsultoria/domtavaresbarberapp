@@ -2468,6 +2468,9 @@ function finMov() {
     const k = f.formaPag || 'outros'; porForma[k] = (porForma[k] || 0) + f.valor;
   });
   const maxF = Math.max(1, ...Object.values(porForma));
+  /* quanto a maquineta comeu no mês e quanto entrou por cartão */
+  const taxasDoMes = somaBy(db.financeiro.filter(f => f.categoria === 'Taxa de cartão' && monthKey(f.data) === m.mk), f => f.valor);
+  const recebidoCartao = (porForma.credito || 0) + (porForma.debito || 0) + (porForma.cartao || 0);
   return `
   <div class="stat-grid">
     ${stat(ICO.money, 'Receitas do mês', money(m.receita), fmtMonth(m.mk), 'valor', 'pos')}
@@ -2484,8 +2487,12 @@ function finMov() {
         <div class="st-row">
           <div class="st-name">${PAG_LABEL[k] || k}</div>
           <div class="st-track"><div class="st-fill" style="width:${pct(v, maxF)}%"></div></div>
-          <div class="st-val" style="min-width:80px">${money(v)}</div>
+          <div class="st-val valor-oculto" style="min-width:80px">${money(v)}</div>
         </div>`).join('') : `<div class="empty-soft">Sem receitas no mês.</div>`}
+      ${taxasDoMes > 0 ? `<div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--border);font-size:.82rem;color:var(--text-dim);line-height:1.5">
+        A maquineta ficou com <b class="valor-oculto" style="color:var(--red)">${money(taxasDoMes)}</b> em taxas neste mês.
+        Do que entrou no cartão, sobrou <b class="valor-oculto" style="color:var(--green)">${money(recebidoCartao - taxasDoMes)}</b> líquido.
+      </div>` : ''}
     </div>
   </div>
   ${custosPendentes(m.mk).length ? `<div class="p-block" style="margin-top:16px;border-color:var(--accent)">
@@ -2969,6 +2976,23 @@ function removerServicoDoForm(i) {
   formServicosTemp.splice(i, 1);
   renderServicosDoForm(false);
 }
+/* duração total de um atendimento; 30 min como piso pra quem não configurou duração */
+function duracaoDe(agId, itens) {
+  const lista = itens || servicosDoAgendamento(agId);
+  return somaBy(lista, i => (getSrv(i.servicoId) || {}).duracao || 0) || 30;
+}
+/* outros atendimentos do mesmo profissional cujo horário se sobrepõe a este */
+function conflitosDe({ id, data, hora, profissionalId, itens }) {
+  const ini = hhmmToMin(hora), fim = ini + duracaoDe(id, itens);
+  return db.agendamentos.filter(o => {
+    if (o.id === id) return false;
+    if (o.data !== data || o.profissionalId !== profissionalId) return false;
+    if (o.status === 'cancelado' || o.status === 'faltou') return false;
+    const oIni = hhmmToMin(o.hora);
+    const oFim = oIni + (o.duracaoMin || duracaoDe(o.id));
+    return ini < oFim && oIni < fim;
+  }).sort((a, b) => a.hora.localeCompare(b.hora));
+}
 function salvarAppt(id) {
   const cliente = val('fCliente'), prof = val('fProf');
   if (!cliente || !prof) { toast('Preencha cliente e profissional.', '⚠️'); return; }
@@ -2980,14 +3004,44 @@ function salvarAppt(id) {
     data: val('fData'), hora: val('fHora'), status: val('fStatus'), obs: val('fObs')
   };
   if (!dados.data || !dados.hora) { toast('Informe data e hora.', '⚠️'); return; }
+
+  /* choque de horário não bloqueia (às vezes encaixar é proposital), mas tem que avisar */
+  const choques = conflitosDe({ id, data: dados.data, hora: dados.hora, profissionalId: prof,
+                                itens: travado ? null : formServicosTemp });
+  if (choques.length) {
+    const dur = duracaoDe(id, travado ? null : formServicosTemp);
+    openCModal('Horário ocupado', `
+      <div style="font-size:.86rem;color:var(--text-dim);line-height:1.6;margin-bottom:14px">
+        ${esc(nomeProf(prof))} já tem ${choques.length === 1 ? 'atendimento' : 'atendimentos'} nesse horário
+        (este leva ${dur} min, das <b style="color:var(--text)">${dados.hora}</b> às
+        <b style="color:var(--text)">${minToHHMM(hhmmToMin(dados.hora) + dur)}</b>):
+      </div>
+      ${choques.map(o => `<div class="li">
+        <div class="lbar" style="background:${corProf(o.profissionalId)}"></div>
+        <div class="lbody">
+          <div class="lt">${o.hora} · ${esc(nomeCli(o.clienteId))}</div>
+          <div class="lm">${esc(nomesServicosDe(o))} · ${o.duracaoMin || duracaoDe(o.id)} min</div>
+        </div>
+      </div>`).join('')}
+      <div style="font-size:.8rem;color:var(--text-mute);margin-top:14px;line-height:1.5">
+        Se for encaixe proposital, pode agendar mesmo assim.
+      </div>`, [
+      { label: 'Agendar mesmo assim', fn: () => { closeCModal(); gravarAppt(id, dados, travado); } },
+      { label: 'Escolher outro horário', cls: 'btn-ghost', fn: closeCModal }
+    ]);
+    return;
+  }
+  gravarAppt(id, dados, travado);
+}
+function gravarAppt(id, dados, travado) {
   let agId = id;
   if (id) {
-    Object.assign(agExistente, dados);
+    Object.assign(db.agendamentos.find(a => a.id === id), dados);
     toast('Agendamento atualizado.', '✏️');
   } else {
     agId = uid();
     db.agendamentos.push(Object.assign({ id: agId, formaPag: null }, dados));
-    toast(`Agendado: <b>${esc(nomeCli(cliente))}</b> em ${fmtDateLong(dados.data)} às ${dados.hora}.`, '📅');
+    toast(`Agendado: <b>${esc(nomeCli(dados.clienteId))}</b> em ${fmtDateLong(dados.data)} às ${dados.hora}.`, '📅');
   }
   if (!travado) {
     db.agendamentoServicos = db.agendamentoServicos.filter(x => x.agendamentoId !== agId);
@@ -3059,6 +3113,11 @@ function setStatus(id, st) {
     db.financeiro = db.financeiro.filter(f => f.agendamentoId !== id);
     const c = getCli(a.clienteId);
     if (c) c.pontos = Math.max(0, (c.pontos || 0) - (Number(db.config.pontosPorCorte) || 0));
+    /* desfazer a conclusão devolve o produto pra prateleira */
+    servicosDoAgendamento(id).forEach(i => {
+      const s = getSrv(i.servicoId);
+      if (s && s.tipo === 'produto') s.estoque = (Number(s.estoque) || 0) + 1;
+    });
     a.valor = undefined; a.comissaoPct = undefined; a.duracaoMin = undefined; a.concluidaEm = undefined; a.taxaMaquineta = undefined;
   }
   a.status = st;
@@ -3102,9 +3161,16 @@ function concluir(id) {
       a.comissaoPct = Number(prof.comissao) || 0;
       a.duracaoMin = somaBy(itens, i => (getSrv(i.servicoId) || {}).duracao || 0);
       a.concluidaEm = new Date().toISOString();
+      /* baixa de estoque: produto vendido sai da prateleira */
+      itens.forEach(i => {
+        const s = getSrv(i.servicoId);
+        if (s && s.tipo === 'produto') s.estoque = Math.max(0, (Number(s.estoque) || 0) - 1);
+      });
       if (!SEM_RECEITA.includes(forma)) {
+        /* se tudo que saiu foi produto, o lançamento é de venda, não de atendimento */
+        const soProdutos = itens.every(i => (getSrv(i.servicoId) || {}).tipo === 'produto');
         db.financeiro.push({
-          id: uid(), data: a.data, tipo: 'receita', categoria: 'Atendimento',
+          id: uid(), data: a.data, tipo: 'receita', categoria: soProdutos ? 'Produtos' : 'Atendimento',
           descricao: `${nomes} — ${c ? c.nome : '—'}`, valor: bruto, formaPag: forma,
           auto: true, agendamentoId: a.id
         });
