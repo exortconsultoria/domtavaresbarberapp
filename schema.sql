@@ -18,6 +18,22 @@ create table if not exists profissionais (
   created_at timestamptz not null default now()
 );
 
+-- almoço diário e folga fixa da semana ('0,6' = domingo e sábado; domingo = 0)
+alter table profissionais add column if not exists almoco_inicio time;
+alter table profissionais add column if not exists almoco_fim time;
+alter table profissionais add column if not exists folga_semanal text;
+
+-- ─────────── folgas avulsas (feriado, viagem, médico) ───────────
+create table if not exists folgas (
+  id              uuid primary key default gen_random_uuid(),
+  profissional_id uuid not null references profissionais(id) on delete cascade,
+  data            date not null,
+  motivo          text,
+  created_at      timestamptz not null default now(),
+  unique (profissional_id, data)
+);
+create index if not exists idx_folgas_data on folgas (data);
+
 -- ─────────── serviços / pacotes / produtos ───────────
 create table if not exists servicos (
   id         uuid primary key default gen_random_uuid(),
@@ -162,6 +178,7 @@ alter table servicos            enable row level security;
 alter table clientes            enable row level security;
 alter table agendamentos        enable row level security;
 alter table agendamento_servicos enable row level security;
+alter table folgas              enable row level security;
 alter table financeiro          enable row level security;
 alter table metas               enable row level security;
 alter table mensagens_enviadas  enable row level security;
@@ -171,7 +188,7 @@ do $$
 declare t text;
 begin
   for t in select unnest(array[
-    'profissionais','servicos','clientes','agendamentos','agendamento_servicos',
+    'profissionais','servicos','clientes','agendamentos','agendamento_servicos','folgas',
     'financeiro','metas','mensagens_enviadas','configuracoes','custos_fixos'
   ]) loop
     if not exists (

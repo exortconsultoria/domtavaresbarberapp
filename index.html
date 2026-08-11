@@ -462,6 +462,33 @@
   }
   .stat .st-num.valor-oculto::after { justify-content: flex-start; }
 
+  /* ── folga e almoço ── */
+  .dia-folga { display: inline-flex; align-items: center; gap: 6px; cursor: pointer;
+    background: var(--surface-2); border: 1px solid var(--border); border-radius: 99px;
+    padding: 8px 13px; font-size: .8rem; font-weight: 600; color: var(--text-dim); user-select: none; }
+  .dia-folga input { width: auto; margin: 0; accent-color: var(--accent); }
+  .dia-folga.on { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
+  /* faixa de almoço/folga na linha do tempo do dia */
+  .tl-pausa { position: relative; padding: 0 0 14px; }
+  .tl-pausa .tl-hora { position: absolute; left: -62px; top: 10px; width: 48px; text-align: right;
+    font-size: .74rem; font-weight: 700; color: var(--text-mute); }
+  .tl-pausa .tp-faixa {
+    border: 1px dashed var(--border-light); border-radius: 12px; padding: 10px 14px;
+    background: repeating-linear-gradient(45deg, transparent, transparent 7px, var(--surface-2) 7px, var(--surface-2) 14px);
+    font-size: .82rem; color: var(--text-dim); display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  }
+  .tl-pausa .tp-faixa b { color: var(--text); }
+  /* dia inteiro de folga */
+  .aviso-folga { display: flex; align-items: center; gap: 12px; padding: 16px 18px; border-radius: 14px;
+    border: 1px dashed var(--border-light); background: var(--surface-2); margin-bottom: 16px; flex-wrap: wrap; }
+  .aviso-folga .af-ico { font-size: 1.5rem; }
+  .aviso-folga .af-txt { flex: 1; min-width: 160px; }
+  .aviso-folga .af-t { font-weight: 700; font-size: .92rem; }
+  .aviso-folga .af-s { font-size: .78rem; color: var(--text-dim); margin-top: 2px; }
+  /* slot de almoço/folga na grade da semana */
+  .cal-slot.pausa { background: repeating-linear-gradient(45deg, transparent, transparent 5px, var(--surface-3) 5px, var(--surface-3) 10px); }
+  .cal-slot.folga-dia { background: var(--surface-3); opacity: .55; }
+
   /* tira de dias da view "Dia" — o padrão no celular */
   .dia-strip { display: flex; gap: 6px; margin: 14px 0 2px; overflow-x: auto; padding-bottom: 2px; }
   .dia-chip {
@@ -860,7 +887,7 @@ function dadosIniciais() {
     clientes: [
       { id: uid(), nome: 'João Campos', tel: '81999493004', email: '', nasc: '1997-12-16', pontos: 0, obs: '', cadastro: todayISO() }
     ],
-    agendamentos: [], agendamentoServicos: [], financeiro: [], metas: [], custosFixos: [], msgLog: [],
+    agendamentos: [], agendamentoServicos: [], financeiro: [], metas: [], custosFixos: [], folgas: [], msgLog: [],
     config: Object.assign({}, CONFIG_PADRAO),
     _upd: Date.now()
   };
@@ -878,7 +905,7 @@ function loadDB() {
   saveDB();
 }
 function normalizeDB() {
-  const base = { profissionais: [], servicos: [], clientes: [], agendamentos: [], agendamentoServicos: [], financeiro: [], metas: [], custosFixos: [], msgLog: [] };
+  const base = { profissionais: [], servicos: [], clientes: [], agendamentos: [], agendamentoServicos: [], financeiro: [], metas: [], custosFixos: [], folgas: [], msgLog: [] };
   Object.keys(base).forEach(k => { if (!Array.isArray(db[k])) db[k] = base[k]; });
   db.config = Object.assign({}, CONFIG_PADRAO, db.config || {});
   migrarServicoUnicoParaLista();
@@ -898,6 +925,35 @@ function migrarServicoUnicoParaLista() {
   });
 }
 const servicosDoAgendamento = agId => (db.agendamentoServicos || []).filter(x => x.agendamentoId === agId);
+
+/* ─── Folga e almoço ───
+   Três situações do mundo real: almoço todo dia, folga fixa na semana
+   (ex.: não abre domingo) e folga avulsa (feriado, viagem, médico). */
+const DOW_LONGO = ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado'];
+const folgaAvulsa = (profId, data) => (db.folgas || []).find(f => f.profissionalId === profId && f.data === data);
+function ehFolga(profId, data) {
+  const p = getProf(profId);
+  if (!p) return null;
+  const avulsa = folgaAvulsa(profId, data);
+  if (avulsa) return { tipo: 'avulsa', motivo: avulsa.motivo || 'Folga', id: avulsa.id };
+  const dow = parseISO(data).getDay();
+  if ((p.folgaSemanal || []).includes(dow)) return { tipo: 'semanal', motivo: `Folga de ${DOW_LONGO[dow].toLowerCase()}` };
+  return null;
+}
+/* intervalo de almoço do profissional em minutos, ou null se não configurou */
+function almocoDe(profId) {
+  const p = getProf(profId);
+  if (!p || !p.almocoInicio || !p.almocoFim) return null;
+  const ini = hhmmToMin(p.almocoInicio), fim = hhmmToMin(p.almocoFim);
+  return fim > ini ? { ini, fim, label: `${p.almocoInicio} às ${p.almocoFim}` } : null;
+}
+/* o atendimento cai no almoço? compara o intervalo inteiro, não só o começo */
+function bateNoAlmoco(profId, hora, duracao) {
+  const a = almocoDe(profId);
+  if (!a) return null;
+  const ini = hhmmToMin(hora), fim = ini + (duracao || 30);
+  return (ini < a.fim && a.ini < fim) ? a : null;
+}
 /* nome pra mostrar em listas: "Corte" · "Corte + Barba" · "Corte + 2" quando são muitos */
 function nomesServicosDe(ag) {
   const itens = servicosDoAgendamento(ag.id);
@@ -941,9 +997,17 @@ const hhmm = v => String(v || '').slice(0, 5);            // 'HH:MM:SS' do Postg
 const MAP = {
   profissionais: { tabela: 'profissionais',
     toRow: o => ({ id: o.id, nome: o.nome, apelido: o.apelido || o.nome, comissao: num(o.comissao) || 0,
-                   cor: o.cor, ativo: !!o.ativo, tel: txt(o.tel) }),
+                   cor: o.cor, ativo: !!o.ativo, tel: txt(o.tel),
+                   almoco_inicio: txt(o.almocoInicio), almoco_fim: txt(o.almocoFim),
+                   folga_semanal: (o.folgaSemanal || []).join(',') || null }),
     fromRow: r => ({ id: r.id, nome: r.nome, apelido: r.apelido, comissao: Number(r.comissao) || 0,
-                     cor: r.cor, ativo: !!r.ativo, tel: r.tel || '' }) },
+                     cor: r.cor, ativo: !!r.ativo, tel: r.tel || '',
+                     almocoInicio: r.almoco_inicio ? hhmm(r.almoco_inicio) : '',
+                     almocoFim: r.almoco_fim ? hhmm(r.almoco_fim) : '',
+                     folgaSemanal: r.folga_semanal ? String(r.folga_semanal).split(',').filter(Boolean).map(Number) : [] }) },
+  folgas: { tabela: 'folgas',
+    toRow: o => ({ id: o.id, profissional_id: o.profissionalId, data: o.data, motivo: txt(o.motivo) }),
+    fromRow: r => ({ id: r.id, profissionalId: r.profissional_id, data: r.data, motivo: r.motivo || '' }) },
   servicos: { tabela: 'servicos',
     toRow: o => ({ id: o.id, nome: o.nome, tipo: o.tipo, preco: num(o.preco) || 0,
                    duracao: num(o.duracao) || 0, estoque: o.tipo === 'produto' ? (num(o.estoque) || 0) : null,
@@ -1641,7 +1705,18 @@ function viewHoje(r) {
   const ehHoje = ini === todayISO();
   const proximo = ehHoje ? lista.find(a => hhmmToMin(a.hora) >= minAgora && a.status !== 'concluido') : lista[0];
 
-  const historia = !lista.length
+  /* folga vale por profissional; com filtro ligado olha o escolhido, senão o primeiro da equipe */
+  const profDoDia = agProf || (db.profissionais[0] || {}).id;
+  const folga = profDoDia ? ehFolga(profDoDia, ini) : null;
+  /* almoço entra na linha do tempo na posição cronológica certa, junto dos atendimentos */
+  const almoco = folga ? null : almocoDe(profDoDia);
+  const linhaDoTempo = lista.map(a => ({ min: hhmmToMin(a.hora), ag: a }));
+  if (almoco) linhaDoTempo.push({ min: almoco.ini, pausa: true, label: almoco.label });
+  linhaDoTempo.sort((x, y) => x.min - y.min);
+
+  const historia = folga
+    ? `<b>${esc(folga.motivo)}.</b> ${lista.length ? `Mesmo assim há ${lista.length} atendimento(s) marcado(s) — vale conferir.` : 'Nenhum atendimento marcado, como esperado.'}`
+    : !lista.length
     ? `Dia livre. ${clientesInativos().length ? `Que tal chamar os <b>${clientesInativos().length} clientes sumidos</b>?` : 'Aproveite para organizar o catálogo.'}`
     : `${ehHoje ? 'Você tem' : 'Nesse dia são'} <b>${lista.length} atendimento${lista.length > 1 ? 's' : ''}</b>` +
       (r.aReceber > 0 ? `, <b class="valor-oculto">${money(r.aReceber)}</b> a receber` : '') +
@@ -1649,6 +1724,21 @@ function viewHoje(r) {
       (proximo && ehHoje ? ` · próximo às <b>${proximo.hora}</b>` : '') + '.';
 
   return `
+  ${folga ? `<div class="aviso-folga">
+    <span class="af-ico">🌴</span>
+    <div class="af-txt">
+      <div class="af-t">${esc(folga.motivo)}</div>
+      <div class="af-s">${folga.tipo === 'semanal'
+        ? 'Folga fixa da semana. Dá para mudar em Ajustes → Equipe.'
+        : 'Folga marcada só para este dia.'}</div>
+    </div>
+    ${folga.tipo === 'avulsa'
+      ? `<button class="mini" onclick="removerFolga('${folga.id}')">Desmarcar folga</button>`
+      : `<button class="mini" onclick="setAjTab('equipe');switchTab('ajustes')">Ajustar</button>`}
+  </div>` : `<div style="margin-bottom:16px">
+    <button class="mini" onclick="marcarFolga('${ini}','${profDoDia || ''}')">🌴 Marcar folga neste dia</button>
+  </div>`}
+
   <div class="analise" style="margin-bottom:16px">
     <div class="an-tit">${ehHoje ? 'Seu dia' : 'Esse dia'}</div>
     <div class="an-hist">${historia}</div>
@@ -1660,15 +1750,20 @@ function viewHoje(r) {
     </div>
   </div>
 
-  ${lista.length ? `<div class="analise">
+  ${lista.length || almoco ? `<div class="analise">
     <div class="an-tit">Linha do tempo</div>
     <div class="an-hist">Toque num atendimento para ver detalhes, concluir ou avisar o cliente.</div>
     <div class="tl">
-      ${lista.map(a => {
-        const c = getCli(a.clienteId) || {};
+      ${linhaDoTempo.map(item => {
+        if (item.pausa) return `<div class="tl-pausa">
+          <div class="tl-hora">${minToHHMM(item.min)}</div>
+          <div class="tp-faixa">🍽️ <b>Almoço</b> · ${esc(item.label)}</div>
+        </div>`;
+        const a = item.ag, c = getCli(a.clienteId) || {};
         const feito = a.status === 'concluido';
         const perdido = a.status === 'faltou';
         const msg = `Olá ${firstName(c.nome)}! Aqui é da ${nomeBarbearia()}. Confirmando seu horário ${ehHoje ? 'hoje' : 'em ' + fmtDate(a.data)} às ${a.hora}. Posso confirmar?`;
+        const noAlmoco = bateNoAlmoco(a.profissionalId, a.hora, a.duracaoMin || duracaoDe(a.id));
         return `<div class="tl-item${feito ? ' feito' : ''}${perdido ? ' perdido' : ''}">
           <div class="tl-hora">${a.hora}</div>
           <div class="tl-ponto" style="${!feito && !perdido ? `background:${corProf(a.profissionalId)}` : ''}"></div>
@@ -1676,6 +1771,7 @@ function viewHoje(r) {
             <div class="tc-top">
               <span class="tc-nome">${esc(c.nome || '—')}</span>
               ${stTag(a.status)}
+              ${noAlmoco && !feito ? '<span class="tag neg">no almoço</span>' : ''}
               <span style="margin-left:auto;font-weight:700" class="valor-oculto">${money(valorDe(a))}</span>
             </div>
             <div class="tc-sub">${esc(nomesServicosDe(a))}${db.profissionais.length > 1 ? ' · ' + esc(nomeProf(a.profissionalId)) : ''}</div>
@@ -1751,6 +1847,34 @@ function diaSemanaLongo(iso) {
   const nomes = ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado'];
   return `${nomes[d.getDay()]} ${pad2(d.getDate())}`;
 }
+function marcarFolga(data, profId) {
+  if (!profId) { toast('Cadastre um profissional primeiro.', '⚠️'); return; }
+  const marcados = db.agendamentos.filter(a => a.data === data && a.profissionalId === profId && a.status !== 'cancelado');
+  const body = `
+    <div style="font-size:.86rem;color:var(--text-dim);line-height:1.6;margin-bottom:16px">
+      Marcar <b style="color:var(--text)">${fmtDateLong(data)}</b> como folga de
+      <b style="color:var(--text)">${esc(nomeProf(profId))}</b>.
+    </div>
+    <label>Motivo (opcional)</label>
+    <input id="fFolgaMotivo" placeholder="Ex.: feriado, viagem, médico">
+    ${marcados.length ? `<div style="font-size:.8rem;color:var(--red);margin-top:14px;line-height:1.5">
+      Atenção: já existem <b>${marcados.length} atendimento(s)</b> marcados nesse dia. Eles não são apagados —
+      só ficam sinalizados. Reagende ou avise os clientes.
+    </div>` : ''}`;
+  openCModal('Marcar folga', body, [
+    { label: 'Marcar folga', fn: () => {
+      db.folgas.push({ id: uid(), profissionalId: profId, data, motivo: val('fFolgaMotivo').trim() || 'Folga' });
+      saveDB(); closeCModal(); render();
+      toast(`${fmtDateLong(data)} marcado como folga.`, '🌴');
+    } },
+    { label: 'Cancelar', cls: 'btn-ghost', fn: closeCModal }
+  ]);
+}
+function removerFolga(id) {
+  db.folgas = db.folgas.filter(f => f.id !== id);
+  saveDB(); render();
+  toast('Folga desmarcada.', '↩️');
+}
 function irParaDia(iso) {
   atdPeriodo = 'hoje';
   atdOffDia = Math.round((parseISO(iso) - parseISO(todayISO())) / 86400000);
@@ -1788,7 +1912,13 @@ function gradeSemana(seg) {
     dias.forEach(d => {
       const noSlot = ags.filter(a => a.data === d && hhmmToMin(a.hora) >= h && hhmmToMin(a.hora) < h + 60)
         .sort((a, b) => a.hora.localeCompare(b.hora));
-      body += `<div class="cal-slot${d === hoje ? ' today-col' : ''}" onclick="openApptForm({data:'${d}',hora:'${minToHHMM(h)}'})">
+      const profRef = agProf || (db.profissionais[0] || {}).id;
+      const folgaDia = profRef ? ehFolga(profRef, d) : null;
+      const alm = profRef && !folgaDia ? almocoDe(profRef) : null;
+      const noAlmoco = alm && h < alm.fim && alm.ini < h + 60;
+      body += `<div class="cal-slot${d === hoje ? ' today-col' : ''}${folgaDia ? ' folga-dia' : noAlmoco ? ' pausa' : ''}"
+        title="${folgaDia ? esc(folgaDia.motivo) : noAlmoco ? 'Almoço · ' + esc(alm.label) : ''}"
+        onclick="openApptForm({data:'${d}',hora:'${minToHHMM(h)}'})">
         ${noSlot.map(a => `<div class="cal-appt ${a.status === 'concluido' ? 'done' : ''}${a.status === 'cancelado' || a.status === 'faltou' ? ' cancel' : ''}"
              style="border-left-color:${corProf(a.profissionalId)}"
              onclick="event.stopPropagation();openApptDetail('${a.id}')" title="${esc(nomeCli(a.clienteId))} — ${esc(nomesServicosDe(a))}">
@@ -2400,11 +2530,13 @@ function renderProfissionais() {
     ${db.profissionais.map(p => {
       const l = db.agendamentos.filter(a => a.profissionalId === p.id && a.data === todayISO() && a.status !== 'cancelado')
         .sort((a, b) => a.hora.localeCompare(b.hora));
+      const fg = ehFolga(p.id, todayISO());
+      const alm = almocoDe(p.id);
       return `<div class="li">
         <div class="lbar" style="background:${p.cor}"></div>
         <div class="lbody">
-          <div class="lt">${esc(p.apelido || p.nome)} <span class="tag neutro">${l.length} hoje</span></div>
-          <div class="lm">${l.length ? l.map(a => `${a.hora} ${esc(firstName(nomeCli(a.clienteId)))}`).join(' · ') : 'sem atendimentos hoje'}</div>
+          <div class="lt">${esc(p.apelido || p.nome)} ${fg ? `<span class="tag neutro">🌴 ${esc(fg.motivo)}</span>` : `<span class="tag neutro">${l.length} hoje</span>`}</div>
+          <div class="lm">${l.length ? l.map(a => `${a.hora} ${esc(firstName(nomeCli(a.clienteId)))}`).join(' · ') : 'sem atendimentos hoje'}${alm ? ` · almoço ${esc(alm.label)}` : ''}</div>
         </div>
       </div>`;
     }).join('')}
@@ -3005,26 +3137,36 @@ function salvarAppt(id) {
   };
   if (!dados.data || !dados.hora) { toast('Informe data e hora.', '⚠️'); return; }
 
-  /* choque de horário não bloqueia (às vezes encaixar é proposital), mas tem que avisar */
+  /* nada disso bloqueia (encaixe e atender na folga acontecem), mas o dono decide sabendo */
+  const dur = duracaoDe(id, travado ? null : formServicosTemp);
   const choques = conflitosDe({ id, data: dados.data, hora: dados.hora, profissionalId: prof,
                                 itens: travado ? null : formServicosTemp });
-  if (choques.length) {
-    const dur = duracaoDe(id, travado ? null : formServicosTemp);
-    openCModal('Horário ocupado', `
+  const folga = ehFolga(prof, dados.data);
+  const almoco = bateNoAlmoco(prof, dados.hora, dur);
+
+  if (choques.length || folga || almoco) {
+    const partes = [];
+    if (folga) partes.push(`<div class="li"><div class="lbody">
+      <div class="lt">🌴 ${esc(folga.motivo)}</div>
+      <div class="lm">${esc(nomeProf(prof))} não atende neste dia</div></div></div>`);
+    if (almoco) partes.push(`<div class="li"><div class="lbody">
+      <div class="lt">🍽️ Horário de almoço</div>
+      <div class="lm">${esc(almoco.label)}</div></div></div>`);
+    choques.forEach(o => partes.push(`<div class="li">
+      <div class="lbar" style="background:${corProf(o.profissionalId)}"></div>
+      <div class="lbody">
+        <div class="lt">${o.hora} · ${esc(nomeCli(o.clienteId))}</div>
+        <div class="lm">${esc(nomesServicosDe(o))} · ${o.duracaoMin || duracaoDe(o.id)} min</div>
+      </div></div>`));
+    const titulo = folga ? 'Dia de folga' : almoco && !choques.length ? 'Horário de almoço' : 'Horário ocupado';
+    openCModal(titulo, `
       <div style="font-size:.86rem;color:var(--text-dim);line-height:1.6;margin-bottom:14px">
-        ${esc(nomeProf(prof))} já tem ${choques.length === 1 ? 'atendimento' : 'atendimentos'} nesse horário
-        (este leva ${dur} min, das <b style="color:var(--text)">${dados.hora}</b> às
-        <b style="color:var(--text)">${minToHHMM(hhmmToMin(dados.hora) + dur)}</b>):
+        Este atendimento leva ${dur} min, das <b style="color:var(--text)">${dados.hora}</b> às
+        <b style="color:var(--text)">${minToHHMM(hhmmToMin(dados.hora) + dur)}</b>, e esbarra em:
       </div>
-      ${choques.map(o => `<div class="li">
-        <div class="lbar" style="background:${corProf(o.profissionalId)}"></div>
-        <div class="lbody">
-          <div class="lt">${o.hora} · ${esc(nomeCli(o.clienteId))}</div>
-          <div class="lm">${esc(nomesServicosDe(o))} · ${o.duracaoMin || duracaoDe(o.id)} min</div>
-        </div>
-      </div>`).join('')}
+      ${partes.join('')}
       <div style="font-size:.8rem;color:var(--text-mute);margin-top:14px;line-height:1.5">
-        Se for encaixe proposital, pode agendar mesmo assim.
+        Se for proposital, pode agendar mesmo assim.
       </div>`, [
       { label: 'Agendar mesmo assim', fn: () => { closeCModal(); gravarAppt(id, dados, travado); } },
       { label: 'Escolher outro horário', cls: 'btn-ghost', fn: closeCModal }
@@ -3378,10 +3520,36 @@ function openProfForm(id) {
         <select id="fPCor">${CORES.map(c => `<option value="${c}"${p && p.cor === c ? ' selected' : ''}>${c}</option>`).join('')}</select>
       </div>
     </div>
+
+    <div class="det-sep"></div>
+    <span class="pb-label">Horário de almoço</span>
+    <div style="font-size:.78rem;color:var(--text-dim);line-height:1.5;margin-bottom:10px">
+      Todo dia, nesse horário, a agenda avisa que você está no almoço. Deixe em branco se não quiser marcar.
+    </div>
+    <div class="form-grid">
+      <div><label>Começa</label><input type="time" id="fPAlmIni" value="${p && p.almocoInicio ? p.almocoInicio : ''}" step="300"></div>
+      <div><label>Termina</label><input type="time" id="fPAlmFim" value="${p && p.almocoFim ? p.almocoFim : ''}" step="300"></div>
+    </div>
+
+    <div class="det-sep"></div>
+    <span class="pb-label">Dias de folga na semana</span>
+    <div style="font-size:.78rem;color:var(--text-dim);line-height:1.5;margin-bottom:10px">
+      Marque os dias em que você não atende. Isso vale toda semana.
+    </div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap">
+      ${DOW_LONGO.map((nome, i) => {
+        const marcado = p && (p.folgaSemanal || []).includes(i);
+        return `<label class="dia-folga${marcado ? ' on' : ''}">
+          <input type="checkbox" class="fPFolga" value="${i}"${marcado ? ' checked' : ''}
+                 onchange="this.closest('.dia-folga').classList.toggle('on', this.checked)">
+          ${nome.slice(0, 3)}
+        </label>`;
+      }).join('')}
+    </div>
     ${p ? `<div class="det-sep"></div>
     <div class="det-grid">
       <div class="det-item"><div class="k">Atendimentos no mês</div><div class="v">${comissoesPorProf().find(d => d.p.id === p.id).atend}</div></div>
-      <div class="det-item"><div class="k">Comissão a pagar</div><div class="v" style="color:var(--accent-bright)">${money(comissoesPorProf().find(d => d.p.id === p.id).comissao)}</div></div>
+      <div class="det-item"><div class="k">Comissão a pagar</div><div class="v valor-oculto" style="color:var(--accent-bright)">${money(comissoesPorProf().find(d => d.p.id === p.id).comissao)}</div></div>
     </div>` : ''}`;
   const actions = [{ label: p ? 'Salvar' : 'Cadastrar', fn: () => salvarProf(id) }];
   if (p) actions.push({ label: 'Excluir', cls: 'btn-danger', fn: () => delProf(id) });
@@ -3391,8 +3559,13 @@ function openProfForm(id) {
 function salvarProf(id) {
   const nome = val('fPNome').trim();
   if (!nome) { toast('Informe o nome do profissional.', '⚠️'); return; }
+  const almIni = val('fPAlmIni'), almFim = val('fPAlmFim');
+  if ((almIni && !almFim) || (!almIni && almFim)) { toast('Preencha o começo e o fim do almoço, ou deixe os dois em branco.', '⚠️'); return; }
+  if (almIni && almFim && hhmmToMin(almFim) <= hhmmToMin(almIni)) { toast('O fim do almoço tem que ser depois do começo.', '⚠️'); return; }
+  const folgaSemanal = [...document.querySelectorAll('.fPFolga:checked')].map(el => Number(el.value));
   const dados = {
     nome, apelido: val('fPApelido').trim() || firstName(nome), tel: val('fPTel').trim(),
+    almocoInicio: almIni, almocoFim: almFim, folgaSemanal,
     comissao: Number(val('fPCom')) || 0, cor: val('fPCor') || CORES[0], ativo: val('fPAtivo') === '1'
   };
   if (id) Object.assign(getProf(id), dados);
