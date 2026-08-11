@@ -44,6 +44,8 @@ create table if not exists clientes (
 );
 
 -- ─────────── agendamentos ───────────
+-- servico_id fica de propósito (dado antigo, de antes de vários serviços por atendimento).
+-- Não é mais preenchido: os itens de cada atendimento moram em agendamento_servicos.
 create table if not exists agendamentos (
   id               uuid primary key default gen_random_uuid(),
   cliente_id       uuid references clientes(id) on delete restrict,
@@ -54,17 +56,32 @@ create table if not exists agendamentos (
   status           text not null default 'agendado'
                      check (status in ('agendado','confirmado','concluido','cancelado','faltou')),
   obs              text,
-  forma_pag        text check (forma_pag in ('pix','dinheiro','cartao','pacote','boleto','permuta')),
+  forma_pag        text check (forma_pag in ('pix','dinheiro','credito','debito','cartao','pacote','boleto','permuta')),
   -- snapshot gravado na conclusão (evita recalcular o histórico se preço/comissão mudar depois)
   valor            numeric(10,2),
   comissao_pct     numeric(5,2),
   duracao_min      integer,
+  taxa_maquineta   numeric(10,2),   -- desconto da maquineta em crédito/débito, já em reais
   concluida_em     timestamptz,
   created_at       timestamptz not null default now()
 );
 create index if not exists idx_agendamentos_data on agendamentos (data);
 create index if not exists idx_agendamentos_cliente on agendamentos (cliente_id);
 create index if not exists idx_agendamentos_profissional on agendamentos (profissional_id);
+alter table agendamentos drop constraint if exists agendamentos_forma_pag_check;
+alter table agendamentos add constraint agendamentos_forma_pag_check
+  check (forma_pag in ('pix','dinheiro','credito','debito','cartao','pacote','boleto','permuta'));
+alter table agendamentos add column if not exists taxa_maquineta numeric(10,2);
+
+-- ─────────── itens de cada atendimento (vários serviços/produtos num só agendamento) ───────────
+create table if not exists agendamento_servicos (
+  id             uuid primary key default gen_random_uuid(),
+  agendamento_id uuid not null references agendamentos(id) on delete cascade,
+  servico_id     uuid references servicos(id) on delete restrict,
+  valor          numeric(10,2) not null,   -- preço do item no momento em que foi adicionado/concluído
+  created_at     timestamptz not null default now()
+);
+create index if not exists idx_agendamento_servicos_ag on agendamento_servicos (agendamento_id);
 
 -- ─────────── financeiro (receitas e despesas) ───────────
 create table if not exists financeiro (
@@ -74,12 +91,15 @@ create table if not exists financeiro (
   categoria      text not null default 'Geral',
   descricao      text not null,
   valor          numeric(10,2) not null,
-  forma_pag      text check (forma_pag in ('pix','dinheiro','cartao','pacote','boleto','permuta')),
+  forma_pag      text check (forma_pag in ('pix','dinheiro','credito','debito','cartao','pacote','boleto','permuta')),
   auto           boolean not null default false,   -- true = gerado pela conclusão de um atendimento
   agendamento_id uuid references agendamentos(id) on delete cascade,
   created_at     timestamptz not null default now()
 );
 create index if not exists idx_financeiro_data on financeiro (data);
+alter table financeiro drop constraint if exists financeiro_forma_pag_check;
+alter table financeiro add constraint financeiro_forma_pag_check
+  check (forma_pag in ('pix','dinheiro','credito','debito','cartao','pacote','boleto','permuta'));
 
 -- ─────────── metas de faturamento por mês ───────────
 create table if not exists metas (
@@ -141,6 +161,7 @@ alter table profissionais       enable row level security;
 alter table servicos            enable row level security;
 alter table clientes            enable row level security;
 alter table agendamentos        enable row level security;
+alter table agendamento_servicos enable row level security;
 alter table financeiro          enable row level security;
 alter table metas               enable row level security;
 alter table mensagens_enviadas  enable row level security;
@@ -150,15 +171,23 @@ do $$
 declare t text;
 begin
   for t in select unnest(array[
-    'profissionais','servicos','clientes','agendamentos',
+    'profissionais','servicos','clientes','agendamentos','agendamento_servicos',
     'financeiro','metas','mensagens_enviadas','configuracoes','custos_fixos'
   ]) loop
     if not exists (
       select 1 from pg_policies where tablename = t and policyname = 'somente_dono'
     ) then
-      execute format(
-        'create policy somente_dono on %I for all to authenticated using (true) with check (true)', t
-      );
+      -- se a função eh_o_dono() já existe (você travou o RLS num passo anterior), usa ela;
+      -- senão cai no genérico liberado pra qualquer autenticado, igual às outras tabelas nasceram
+      if exists (select 1 from pg_proc where proname = 'eh_o_dono') then
+        execute format(
+          'create policy somente_dono on %I for all to authenticated using (eh_o_dono()) with check (eh_o_dono())', t
+        );
+      else
+        execute format(
+          'create policy somente_dono on %I for all to authenticated using (true) with check (true)', t
+        );
+      end if;
     end if;
   end loop;
 end $$;

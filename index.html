@@ -837,9 +837,12 @@ const nomeSrv = id => (getSrv(id) || {}).nome || 'Serviço removido';
 const precoSrv = id => (getSrv(id) || {}).preco || 0;
 
 const ST_LABEL = { agendado: 'Agendado', confirmado: 'Confirmado', concluido: 'Concluído', cancelado: 'Cancelado', faltou: 'Faltou' };
-const PAG_LABEL = { pix: 'PIX', dinheiro: 'Dinheiro', cartao: 'Cartão', pacote: 'Pacote', boleto: 'Boleto', permuta: 'Permuta / cortesia' };
+/* "cartao" some das telas novas, mas o rótulo fica pra não quebrar lançamento antigo que já usava esse valor */
+const PAG_LABEL = { pix: 'PIX', dinheiro: 'Dinheiro', credito: 'Crédito', debito: 'Débito', cartao: 'Cartão', pacote: 'Pacote', boleto: 'Boleto', permuta: 'Permuta / cortesia' };
 /* formas que não entram como receita: o serviço foi prestado, mas não entrou dinheiro */
 const SEM_RECEITA = ['pacote', 'permuta'];
+/* taxa fixa da maquineta, descontada automaticamente ao concluir um atendimento pago no cartão */
+const TAXA_MAQUINETA = { credito: 0.0309, debito: 0.0098 };
 const stTag = st => `<span class="tag st-${st}">${ST_LABEL[st] || st}</span>`;
 
 /* Dados iniciais reais da barbearia. Nada de exemplo/fictício aqui:
@@ -857,7 +860,7 @@ function dadosIniciais() {
     clientes: [
       { id: uid(), nome: 'João Campos', tel: '81999493004', email: '', nasc: '1997-12-16', pontos: 0, obs: '', cadastro: todayISO() }
     ],
-    agendamentos: [], financeiro: [], metas: [], custosFixos: [], msgLog: [],
+    agendamentos: [], agendamentoServicos: [], financeiro: [], metas: [], custosFixos: [], msgLog: [],
     config: Object.assign({}, CONFIG_PADRAO),
     _upd: Date.now()
   };
@@ -875,9 +878,32 @@ function loadDB() {
   saveDB();
 }
 function normalizeDB() {
-  const base = { profissionais: [], servicos: [], clientes: [], agendamentos: [], financeiro: [], metas: [], custosFixos: [], msgLog: [] };
+  const base = { profissionais: [], servicos: [], clientes: [], agendamentos: [], agendamentoServicos: [], financeiro: [], metas: [], custosFixos: [], msgLog: [] };
   Object.keys(base).forEach(k => { if (!Array.isArray(db[k])) db[k] = base[k]; });
   db.config = Object.assign({}, CONFIG_PADRAO, db.config || {});
+  migrarServicoUnicoParaLista();
+}
+/* dado antigo (de antes de vários serviços por atendimento) tinha um servicoId
+   solto no agendamento; converte pra um item de agendamentoServicos, sem tocar
+   no campo antigo — idempotente, roda toda vez que carrega. */
+function migrarServicoUnicoParaLista() {
+  const jaTem = new Set(db.agendamentoServicos.map(x => x.agendamentoId));
+  (db.agendamentos || []).forEach(a => {
+    if (a.servicoId && !jaTem.has(a.id)) {
+      db.agendamentoServicos.push({
+        id: uid(), agendamentoId: a.id, servicoId: a.servicoId,
+        valor: a.valor !== undefined && a.valor !== null ? Number(a.valor) : precoSrv(a.servicoId)
+      });
+    }
+  });
+}
+const servicosDoAgendamento = agId => (db.agendamentoServicos || []).filter(x => x.agendamentoId === agId);
+/* nome pra mostrar em listas: "Corte" · "Corte + Barba" · "Corte + 2" quando são muitos */
+function nomesServicosDe(ag) {
+  const itens = servicosDoAgendamento(ag.id);
+  if (!itens.length) return '—';
+  const nomes = itens.map(i => nomeSrv(i.servicoId));
+  return nomes.length <= 2 ? nomes.join(' + ') : `${nomes[0]} + ${nomes.length - 1}`;
 }
 /* app "em branco" = sem catálogo cadastrado (o dono ainda não montou a barbearia dele) */
 const appVazio = () => db.servicos.length === 0;
@@ -931,16 +957,24 @@ const MAP = {
     fromRow: r => ({ id: r.id, nome: r.nome, tel: r.tel || '', email: r.email || '', nasc: r.nasc || '',
                      pontos: Number(r.pontos) || 0, obs: r.obs || '', cadastro: r.cadastro || '' }) },
   agendamentos: { tabela: 'agendamentos',
-    toRow: o => ({ id: o.id, cliente_id: o.clienteId, servico_id: o.servicoId, profissional_id: o.profissionalId,
+    /* servico_id fica de fora do que sobe: virou agendamento_servicos (vários itens por atendimento) */
+    toRow: o => ({ id: o.id, cliente_id: o.clienteId, profissional_id: o.profissionalId,
                    data: o.data, hora: o.hora, status: o.status, obs: txt(o.obs), forma_pag: txt(o.formaPag),
                    valor: num(o.valor), comissao_pct: num(o.comissaoPct), duracao_min: num(o.duracaoMin),
-                   concluida_em: o.concluidaEm || null }),
-    fromRow: r => ({ id: r.id, clienteId: r.cliente_id, servicoId: r.servico_id, profissionalId: r.profissional_id,
+                   taxa_maquineta: num(o.taxaMaquineta), concluida_em: o.concluidaEm || null }),
+    fromRow: r => ({ id: r.id, clienteId: r.cliente_id, profissionalId: r.profissional_id,
+                     /* servicoId só volta pra alimentar a migração de dado antigo (linha 892);
+                        nunca é escrito de novo (não está no toRow) */
+                     servicoId: r.servico_id || undefined,
                      data: r.data, hora: hhmm(r.hora), status: r.status, obs: r.obs || '', formaPag: r.forma_pag,
                      valor: r.valor === null ? undefined : Number(r.valor),
                      comissaoPct: r.comissao_pct === null ? undefined : Number(r.comissao_pct),
                      duracaoMin: r.duracao_min === null ? undefined : Number(r.duracao_min),
+                     taxaMaquineta: r.taxa_maquineta === null || r.taxa_maquineta === undefined ? undefined : Number(r.taxa_maquineta),
                      concluidaEm: r.concluida_em || undefined }) },
+  agendamentoServicos: { tabela: 'agendamento_servicos',
+    toRow: o => ({ id: o.id, agendamento_id: o.agendamentoId, servico_id: o.servicoId, valor: num(o.valor) || 0 }),
+    fromRow: r => ({ id: r.id, agendamentoId: r.agendamento_id, servicoId: r.servico_id, valor: Number(r.valor) || 0 }) },
   financeiro: { tabela: 'financeiro',
     toRow: o => ({ id: o.id, data: o.data, tipo: o.tipo, categoria: o.categoria || 'Geral', descricao: o.descricao,
                    valor: num(o.valor) || 0, forma_pag: txt(o.formaPag), auto: !!o.auto,
@@ -1082,8 +1116,10 @@ function migrarIdsParaUUID() {
   };
   COLECOES.forEach(k => (db[k] || []).forEach(o => { o.id = novoId(o.id); }));
   (db.agendamentos || []).forEach(a => {
-    a.clienteId = novoId(a.clienteId); a.servicoId = novoId(a.servicoId); a.profissionalId = novoId(a.profissionalId);
+    a.clienteId = novoId(a.clienteId); a.profissionalId = novoId(a.profissionalId);
+    if (a.servicoId) a.servicoId = novoId(a.servicoId);   // campo legado, só some da leitura
   });
+  (db.agendamentoServicos || []).forEach(x => { x.agendamentoId = novoId(x.agendamentoId); x.servicoId = novoId(x.servicoId); });
   (db.financeiro || []).forEach(f => { if (f.agendamentoId) f.agendamentoId = novoId(f.agendamentoId); });
   (db.msgLog || []).forEach(l => { l.clienteId = novoId(l.clienteId); });
   return mapa.size;
@@ -1097,10 +1133,15 @@ async function conectarNuvem() {
     const temNaNuvem = COLECOES.some(k => (remoto[k] || []).length);
     const temLocal = COLECOES.some(k => (db[k] || []).length);
     if (temNaNuvem) {
+      /* espelho tirado ANTES da normalização: se ela migrar dado antigo (ex.: serviço
+         único virando item da lista), esse item ainda não existe de verdade na nuvem —
+         precisa continuar "diferente" pra sincronizar() mandar ele pra lá */
+      const espelho = JSON.parse(JSON.stringify({ ...COLECOES.reduce((a, k) => (a[k] = remoto[k] || [], a), {}), config: remoto.config }));
       db = Object.assign(remoto, { _upd: Date.now() });
       normalizeDB();
-      nuvem = JSON.parse(JSON.stringify({ ...COLECOES.reduce((a, k) => (a[k] = db[k], a), {}), config: db.config }));
+      nuvem = espelho;
       Store.set(DB_KEY, JSON.stringify(db));
+      agendarSync();
     } else if (temLocal) {
       const trocados = migrarIdsParaUUID();
       nuvem = { config: {} }; COLECOES.forEach(k => (nuvem[k] = []));
@@ -1238,7 +1279,7 @@ const equipeSimples = () => db.profissionais.filter(p => Number(p.comissao) > 0)
 /* Valor do atendimento: depois de concluído vale o preço congelado na conclusão,
    nunca o preço atual da tabela — senão reajustar um serviço reescreveria o passado. */
 function valorDe(ag) {
-  return ag && ag.valor !== undefined && ag.valor !== null ? Number(ag.valor) : precoSrv(ag.servicoId);
+  return ag && ag.valor !== undefined && ag.valor !== null ? Number(ag.valor) : somaBy(servicosDoAgendamento(ag.id), x => x.valor);
 }
 function comissaoDe(ag) {
   const pct = ag && ag.comissaoPct !== undefined && ag.comissaoPct !== null
@@ -1352,9 +1393,10 @@ function renderPainel() {
     .filter(a => (a.status === 'agendado' || a.status === 'confirmado') && a.data >= todayISO())
     .sort((a, b) => (a.data + a.hora).localeCompare(b.data + b.hora)).slice(0, 6);
 
-  /* serviços mais realizados no mês */
+  /* serviços mais realizados no mês — conta por item, não por agendamento (um atendimento pode ter vários) */
+  const idsConclMes = new Set(m.conclMes.map(a => a.id));
   const cont = {};
-  m.conclMes.forEach(a => { cont[a.servicoId] = (cont[a.servicoId] || 0) + 1; });
+  db.agendamentoServicos.filter(x => idsConclMes.has(x.agendamentoId)).forEach(x => { cont[x.servicoId] = (cont[x.servicoId] || 0) + 1; });
   const topSrv = Object.entries(cont).map(([id, n]) => ({ id, n })).sort((a, b) => b.n - a.n).slice(0, 5);
   const maxSrv = topSrv.length ? topSrv[0].n : 1;
 
@@ -1407,7 +1449,7 @@ function renderPainel() {
           <div class="lbar" style="background:${corProf(a.profissionalId)}"></div>
           <div class="lbody">
             <div class="lt">${esc(nomeCli(a.clienteId))} ${stTag(a.status)}</div>
-            <div class="lm">${fmtDateLong(a.data)} · ${a.hora} · ${esc(nomeSrv(a.servicoId))} · ${esc(nomeProf(a.profissionalId))}</div>
+            <div class="lm">${fmtDateLong(a.data)} · ${a.hora} · ${esc(nomesServicosDe(a))} · ${esc(nomeProf(a.profissionalId))}</div>
           </div>
           <div class="lend valor-oculto">${money(valorDe(a))}</div>
         </div>`).join('') : `<div class="empty-soft">Nenhum agendamento futuro.</div>`}
@@ -1433,7 +1475,7 @@ function renderPainel() {
           <div class="lbar" style="background:${corProf(a.profissionalId)}"></div>
           <div class="lbody">
             <div class="lt">${esc(c.nome || '—')}</div>
-            <div class="lm">${a.hora} · ${esc(nomeSrv(a.servicoId))}</div>
+            <div class="lm">${a.hora} · ${esc(nomesServicosDe(a))}</div>
           </div>
           ${waBtn(c.tel, msg, 'Lembrar')}
         </div>`;
@@ -1636,7 +1678,7 @@ function viewHoje(r) {
               ${stTag(a.status)}
               <span style="margin-left:auto;font-weight:700" class="valor-oculto">${money(valorDe(a))}</span>
             </div>
-            <div class="tc-sub">${esc(nomeSrv(a.servicoId))}${db.profissionais.length > 1 ? ' · ' + esc(nomeProf(a.profissionalId)) : ''}</div>
+            <div class="tc-sub">${esc(nomesServicosDe(a))}${db.profissionais.length > 1 ? ' · ' + esc(nomeProf(a.profissionalId)) : ''}</div>
             ${!feito && !perdido ? `<div class="tc-acoes" onclick="event.stopPropagation()">
               <button class="mini ok" onclick="concluir('${a.id}')">Concluir</button>
               ${a.status === 'agendado' ? `<button class="mini" onclick="setStatus('${a.id}','confirmado')">Confirmar</button>` : ''}
@@ -1725,7 +1767,7 @@ function listaAgrupada(porDia) {
           <div class="lbar" style="background:${corProf(a.profissionalId)}"></div>
           <div class="lbody">
             <div class="lt">${a.hora} · ${esc(nomeCli(a.clienteId))} ${stTag(a.status)}</div>
-            <div class="lm">${esc(nomeSrv(a.servicoId))}</div>
+            <div class="lm">${esc(nomesServicosDe(a))}</div>
           </div>
           <div class="lend valor-oculto">${money(valorDe(a))}</div>
         </div>`).join('')}
@@ -1749,7 +1791,7 @@ function gradeSemana(seg) {
       body += `<div class="cal-slot${d === hoje ? ' today-col' : ''}" onclick="openApptForm({data:'${d}',hora:'${minToHHMM(h)}'})">
         ${noSlot.map(a => `<div class="cal-appt ${a.status === 'concluido' ? 'done' : ''}${a.status === 'cancelado' || a.status === 'faltou' ? ' cancel' : ''}"
              style="border-left-color:${corProf(a.profissionalId)}"
-             onclick="event.stopPropagation();openApptDetail('${a.id}')" title="${esc(nomeCli(a.clienteId))} — ${esc(nomeSrv(a.servicoId))}">
+             onclick="event.stopPropagation();openApptDetail('${a.id}')" title="${esc(nomeCli(a.clienteId))} — ${esc(nomesServicosDe(a))}">
              <div class="ca-h">${a.hora}</div><div class="ca-n">${esc(firstName(nomeCli(a.clienteId)))}</div>
            </div>`).join('')}
       </div>`;
@@ -1778,13 +1820,22 @@ function viewMes(r) {
   const maxSem = Math.max(1, ...semanas.map(s => s.qtd));
   const melhorSem = semanas.slice().sort((x, y) => y.valor - x.valor)[0];
 
-  /* serviços e clientes que mais aparecem */
+  /* clientes que mais aparecem — por agendamento, com o valor total dele */
   const contaPor = (arr, chave) => {
     const m = {};
     arr.forEach(a => { const k = chave(a); m[k] = m[k] || { qtd: 0, valor: 0 }; m[k].qtd++; m[k].valor += valorDe(a); });
     return Object.entries(m).map(([k, v]) => ({ k, ...v })).sort((x, y) => y.valor - x.valor);
   };
-  const topServicos = contaPor(r.concl, a => a.servicoId).slice(0, 5);
+  /* serviços que mais aparecem — por item, não por agendamento */
+  const contaPorServico = arr => {
+    const ids = new Set(arr.map(a => a.id));
+    const m = {};
+    db.agendamentoServicos.filter(x => ids.has(x.agendamentoId)).forEach(x => {
+      m[x.servicoId] = m[x.servicoId] || { qtd: 0, valor: 0 }; m[x.servicoId].qtd++; m[x.servicoId].valor += x.valor;
+    });
+    return Object.entries(m).map(([k, v]) => ({ k, ...v })).sort((x, y) => y.valor - x.valor);
+  };
+  const topServicos = contaPorServico(r.concl).slice(0, 5);
   const topClientes = contaPor(r.concl, a => a.clienteId).slice(0, 5);
   const maxSrv = Math.max(1, ...topServicos.map(s => s.valor));
   const maxCli = Math.max(1, ...topClientes.map(c => c.valor));
@@ -2082,6 +2133,8 @@ function setSrvTab(t) { srvTab = t; render(); }
 function renderServicos() {
   const list = db.servicos.filter(s => s.tipo === srvTab);
   const baixo = db.servicos.filter(s => s.tipo === 'produto' && s.ativo && (s.estoque || 0) <= 3);
+  const idsConcluidosMes = new Set(db.agendamentos.filter(a => a.status === 'concluido' && monthKey(a.data) === curMonthKey()).map(a => a.id));
+  const realizadosNoMes = sId => db.agendamentoServicos.filter(x => x.servicoId === sId && idsConcluidosMes.has(x.agendamentoId)).length;
   return `
   <div class="dataview-bar">
     <div class="modal-tabs" style="margin:0;border:none">
@@ -2103,7 +2156,7 @@ function renderServicos() {
     <div class="tbl-scroll"><table>
       <thead><tr><th>Nome</th><th>Preço</th>${srvTab === 'produto' ? '<th>Estoque</th>' : '<th>Duração</th>'}<th>Realizados no mês</th><th>Status</th></tr></thead>
       <tbody>${list.length ? list.map(s => {
-        const n = db.agendamentos.filter(a => a.servicoId === s.id && a.status === 'concluido' && monthKey(a.data) === curMonthKey()).length;
+        const n = realizadosNoMes(s.id);
         return `<tr onclick="openServicoForm('${s.id}')">
           <td><b>${esc(s.nome)}</b></td>
           <td>${money(s.preco)}</td>
@@ -2829,12 +2882,16 @@ const val = id => (document.getElementById(id) || {}).value || '';
 /* ══════════════════════════════════════════════════════════════
    Ações: Agendamentos
    ══════════════════════════════════════════════════════════════ */
+/* lista de serviços do agendamento em edição, enquanto o drawer está aberto */
+let formServicosTemp = [];
 function openApptForm(pre) {
   pre = pre || {};
   const ag = pre.id ? db.agendamentos.find(a => a.id === pre.id) : null;
   const data = ag ? ag.data : (pre.data || todayISO());
   const hora = ag ? ag.hora : (pre.hora || '09:00');
-  const vendaveis = db.servicos.filter(s => s.ativo || (ag && s.id === ag.servicoId));
+  const travado = !!(ag && ag.status === 'concluido');   // concluído: itens ficam travados, muda pelo botão Concluir
+  formServicosTemp = ag ? servicosDoAgendamento(ag.id).map(x => ({ servicoId: x.servicoId, valor: x.valor })) : [];
+  const vendaveis = db.servicos.filter(s => s.ativo);
   const body = `
     <div class="form-grid">
       <div class="full">
@@ -2846,10 +2903,15 @@ function openApptForm(pre) {
         ${db.clientes.length ? '' : '<div style="font-size:.75rem;color:var(--red-bright);margin-top:6px">Cadastre um cliente primeiro.</div>'}
       </div>
       <div class="full">
-        <label>Serviço / Produto</label>
-        <select id="fServico" onchange="apptPreview()">
-          ${vendaveis.map(s => `<option value="${s.id}"${ag && ag.servicoId === s.id ? ' selected' : ''}>${esc(s.nome)} — ${money(s.preco)}</option>`).join('')}
-        </select>
+        <label>Serviços / Produtos</label>
+        ${travado ? '' : `<div style="display:flex;gap:8px">
+          <select id="fServicoAdd" style="flex:1">
+            ${vendaveis.map(s => `<option value="${s.id}">${esc(s.nome)} — ${money(s.preco)}</option>`).join('')}
+          </select>
+          <button type="button" class="mini" onclick="addServicoAoForm()">+ Adicionar</button>
+        </div>`}
+        <div id="fServicosLista" style="margin-top:8px"></div>
+        ${travado ? '<div style="font-size:.75rem;color:var(--text-mute);margin-top:6px">Atendimento concluído — os itens ficam travados. Para trocar, desfaça a conclusão primeiro (botão "Voltar p/ agendado").</div>' : ''}
       </div>
       <div>
         <label>Profissional</label>
@@ -2865,51 +2927,77 @@ function openApptForm(pre) {
             /* "Concluído" fica fora daqui de propósito: concluir tem que passar pelo botão
                do atendimento, que pergunta a forma de pagamento, lança a receita e credita
                os pontos. Escolher por este menu deixava um concluído sem faturamento. */
-            .filter(k => k !== 'concluido' || (ag && ag.status === 'concluido'))
+            .filter(k => k !== 'concluido' || travado)
             .map(k => `<option value="${k}"${(ag ? ag.status : 'agendado') === k ? ' selected' : ''}>${ST_LABEL[k]}</option>`).join('')}
         </select>
       </div>
-      ${ag && ag.status === 'concluido' ? '' : `<div class="full" style="font-size:.75rem;color:var(--text-mute);margin-top:-6px">
+      ${travado ? '' : `<div class="full" style="font-size:.75rem;color:var(--text-mute);margin-top:-6px">
         Para concluir e lançar a receita, use o botão <b>Concluir atendimento</b> ao abrir o atendimento.
       </div>`}
       <div><label>Data</label><input type="date" id="fData" value="${data}"></div>
       <div><label>Hora</label><input type="time" id="fHora" value="${hora}" step="300"></div>
       <div class="full"><label>Observações</label><textarea id="fObs" placeholder="Preferências, combinados...">${esc(ag ? ag.obs : '')}</textarea></div>
-      <div class="full" id="apptPrev"></div>
     </div>`;
   const actions = [{ label: ag ? 'Salvar alterações' : 'Agendar', cls: '', fn: () => salvarAppt(ag && ag.id) }];
   if (ag) actions.push({ label: 'Excluir', cls: 'btn-danger', fn: () => delAppt(ag.id) });
   actions.push({ label: 'Cancelar', cls: 'btn-ghost', fn: closeDrawer });
   openDrawer(ag ? 'Editar agendamento' : 'Novo agendamento', body, actions);
-  apptPreview();
+  renderServicosDoForm(travado);
 }
-function apptPreview() {
-  const s = getSrv(val('fServico'));
-  const el = document.getElementById('apptPrev');
-  if (!el || !s) return;
-  el.innerHTML = `<div class="det-item"><div class="k">Resumo</div>
-    <div class="v">${money(s.preco)}${s.duracao ? ` · ${s.duracao} min` : ''}${s.tipo !== 'servico' ? ` · ${s.tipo}` : ''}</div></div>`;
+function renderServicosDoForm(travado) {
+  const el = document.getElementById('fServicosLista');
+  if (!el) return;
+  if (!formServicosTemp.length) { el.innerHTML = `<div class="empty-soft">Nenhum serviço adicionado ainda.</div>`; return; }
+  el.innerHTML = formServicosTemp.map((it, i) => `
+    <div class="li" style="padding:7px 2px">
+      <div class="lbody"><div class="lt" style="font-size:.85rem">${esc(nomeSrv(it.servicoId))}</div></div>
+      <div class="lend" style="font-size:.85rem">${money(it.valor)}</div>
+      ${travado ? '' : `<button type="button" class="subt-del" onclick="removerServicoDoForm(${i})" title="Remover">✕</button>`}
+    </div>`).join('') + `
+    <div style="display:flex;justify-content:space-between;padding:8px 2px 2px;font-weight:700;border-top:1px solid var(--border);margin-top:2px">
+      <span>Total</span><span>${money(somaBy(formServicosTemp, x => x.valor))}</span>
+    </div>`;
+}
+function addServicoAoForm() {
+  const id = val('fServicoAdd');
+  const s = getSrv(id);
+  if (!s) return;
+  formServicosTemp.push({ servicoId: id, valor: s.preco });
+  renderServicosDoForm(false);
+}
+function removerServicoDoForm(i) {
+  formServicosTemp.splice(i, 1);
+  renderServicosDoForm(false);
 }
 function salvarAppt(id) {
-  const cliente = val('fCliente'), servico = val('fServico'), prof = val('fProf');
-  if (!cliente || !servico || !prof) { toast('Preencha cliente, serviço e profissional.', '⚠️'); return; }
+  const cliente = val('fCliente'), prof = val('fProf');
+  if (!cliente || !prof) { toast('Preencha cliente e profissional.', '⚠️'); return; }
+  const agExistente = id ? db.agendamentos.find(a => a.id === id) : null;
+  const travado = !!(agExistente && agExistente.status === 'concluido');
+  if (!travado && !formServicosTemp.length) { toast('Adicione ao menos um serviço.', '⚠️'); return; }
   const dados = {
-    clienteId: cliente, servicoId: servico, profissionalId: prof,
+    clienteId: cliente, profissionalId: prof,
     data: val('fData'), hora: val('fHora'), status: val('fStatus'), obs: val('fObs')
   };
   if (!dados.data || !dados.hora) { toast('Informe data e hora.', '⚠️'); return; }
+  let agId = id;
   if (id) {
-    const ag = db.agendamentos.find(a => a.id === id);
-    Object.assign(ag, dados);
+    Object.assign(agExistente, dados);
     toast('Agendamento atualizado.', '✏️');
   } else {
-    db.agendamentos.push(Object.assign({ id: uid(), formaPag: null }, dados));
+    agId = uid();
+    db.agendamentos.push(Object.assign({ id: agId, formaPag: null }, dados));
     toast(`Agendado: <b>${esc(nomeCli(cliente))}</b> em ${fmtDateLong(dados.data)} às ${dados.hora}.`, '📅');
+  }
+  if (!travado) {
+    db.agendamentoServicos = db.agendamentoServicos.filter(x => x.agendamentoId !== agId);
+    formServicosTemp.forEach(it => db.agendamentoServicos.push({ id: uid(), agendamentoId: agId, servicoId: it.servicoId, valor: it.valor }));
   }
   saveDB(); closeDrawer(); render();
 }
 function delAppt(id) {
   db.agendamentos = db.agendamentos.filter(a => a.id !== id);
+  db.agendamentoServicos = db.agendamentoServicos.filter(x => x.agendamentoId !== id);
   db.financeiro = db.financeiro.filter(f => f.agendamentoId !== id);
   saveDB(); closeDrawer(); render();
   toast('Agendamento excluído.', '🗑️');
@@ -2917,19 +3005,31 @@ function delAppt(id) {
 function openApptDetail(id) {
   const a = db.agendamentos.find(x => x.id === id);
   if (!a) return;
-  const c = getCli(a.clienteId) || {}, s = getSrv(a.servicoId) || {}, p = getProf(a.profissionalId) || {};
+  const c = getCli(a.clienteId) || {}, p = getProf(a.profissionalId) || {};
+  const itens = servicosDoAgendamento(a.id);
+  const duracaoTotal = a.duracaoMin !== undefined ? a.duracaoMin : somaBy(itens, i => (getSrv(i.servicoId) || {}).duracao || 0);
+  const taxa = Number(a.taxaMaquineta) || 0;
   const msg = `Olá ${firstName(c.nome)}! Aqui é da Barbearia Dom Tavares. Seu horário está marcado para ${fmtDateLong(a.data)} às ${a.hora} com ${p.apelido || p.nome}. Confirma pra mim?`;
   const body = `
+    <span class="pb-label" style="margin-bottom:8px">Serviços</span>
+    <div style="margin-bottom:16px">
+      ${itens.length ? itens.map(i => `
+        <div class="li" style="padding:6px 2px">
+          <div class="lbody"><div class="lt" style="font-size:.85rem">${esc(nomeSrv(i.servicoId))}</div></div>
+          <div class="lend" style="font-size:.85rem">${money(i.valor)}</div>
+        </div>`).join('') : `<div class="empty-soft">Nenhum serviço.</div>`}
+    </div>
     <div class="det-grid">
       <div class="det-item"><div class="k">Cliente</div><div class="v">${esc(c.nome || '—')}</div></div>
       <div class="det-item"><div class="k">Status</div><div class="v">${stTag(a.status)}</div></div>
       <div class="det-item"><div class="k">Data</div><div class="v">${fmtDateLong(a.data)}</div></div>
-      <div class="det-item"><div class="k">Hora</div><div class="v">${a.hora}${s.duracao ? ` · ${s.duracao} min` : ''}</div></div>
-      <div class="det-item"><div class="k">Serviço</div><div class="v">${esc(s.nome || '—')}</div></div>
+      <div class="det-item"><div class="k">Hora</div><div class="v">${a.hora}${duracaoTotal ? ` · ${duracaoTotal} min` : ''}</div></div>
       <div class="det-item"><div class="k">Valor</div><div class="v">${money(valorDe(a))}</div></div>
       <div class="det-item"><div class="k">Profissional</div><div class="v" style="color:${p.cor || 'var(--accent)'}">${esc(p.apelido || p.nome || '—')}</div></div>
       <div class="det-item"><div class="k">Comissão</div><div class="v">${money(comissaoDe(a))} <span style="font-size:.7rem;color:var(--text-mute)">(${a.comissaoPct != null ? a.comissaoPct : (p.comissao || 0)}%)</span></div></div>
       ${a.formaPag ? `<div class="det-item"><div class="k">Forma de pagamento</div><div class="v">${PAG_LABEL[a.formaPag]}</div></div>` : ''}
+      ${taxa > 0 ? `<div class="det-item"><div class="k">Taxa da maquineta</div><div class="v" style="color:var(--red)">− ${money(taxa)}</div></div>
+      <div class="det-item"><div class="k">Valor líquido</div><div class="v" style="color:var(--green);font-weight:700">${money(valorDe(a) - taxa)}</div></div>` : ''}
     </div>
     ${a.obs ? `<div class="det-item" style="margin-bottom:18px"><div class="k">Observações</div><div class="v" style="font-weight:500;font-size:.84rem">${esc(a.obs)}</div></div>` : ''}
     ${waBtn(c.tel, msg, 'Falar no WhatsApp')}
@@ -2959,46 +3059,62 @@ function setStatus(id, st) {
     db.financeiro = db.financeiro.filter(f => f.agendamentoId !== id);
     const c = getCli(a.clienteId);
     if (c) c.pontos = Math.max(0, (c.pontos || 0) - (Number(db.config.pontosPorCorte) || 0));
-    a.valor = undefined; a.comissaoPct = undefined; a.duracaoMin = undefined; a.concluidaEm = undefined;
+    a.valor = undefined; a.comissaoPct = undefined; a.duracaoMin = undefined; a.concluidaEm = undefined; a.taxaMaquineta = undefined;
   }
   a.status = st;
   saveDB(); render(); openApptDetail(id);
   toast(`Status alterado para <b>${ST_LABEL[st]}</b>.`, '🔁');
 }
+let concluirBruto = 0;   // valor bruto do atendimento sendo concluído, pro aviso de taxa em tempo real
 function concluir(id) {
   const a = db.agendamentos.find(x => x.id === id);
   if (!a || a.status === 'concluido') return;
-  const s = getSrv(a.servicoId) || { preco: 0, nome: '—' };
+  const itens = servicosDoAgendamento(a.id);
+  if (!itens.length) { toast('Adicione um serviço a este agendamento antes de concluir.', '⚠️'); return; }
   const c = getCli(a.clienteId);
+  const bruto = somaBy(itens, i => i.valor);
+  const nomes = itens.map(i => nomeSrv(i.servicoId)).join(', ');
+  concluirBruto = bruto;
   const body = `
     <div style="font-size:.86rem;color:var(--text-dim);line-height:1.6;margin-bottom:18px">
-      Concluir <b style="color:var(--text)">${esc(s.nome)}</b> de <b style="color:var(--text)">${esc(c ? c.nome : '—')}</b>
-      no valor de <b style="color:var(--accent-bright)">${money(s.preco)}</b>.
+      Concluir <b style="color:var(--text)">${esc(nomes)}</b> de <b style="color:var(--text)">${esc(c ? c.nome : '—')}</b>
+      no valor de <b style="color:var(--accent-bright)">${money(bruto)}</b>.
     </div>
     <label>Forma de pagamento</label>
     <select id="fPag" onchange="avisoSemReceita()">
       <option value="pix">PIX</option><option value="dinheiro">Dinheiro</option>
-      <option value="cartao">Cartão</option><option value="pacote">Pacote (já pago)</option>
+      <option value="credito">Crédito</option><option value="debito">Débito</option>
+      <option value="pacote">Pacote (já pago)</option>
       <option value="permuta">Permuta / cortesia</option>
     </select>
     <div id="avisoPag" style="font-size:.78rem;color:var(--text-mute);margin-top:10px;line-height:1.5"></div>`;
   openCModal('Concluir atendimento', body, [
     { label: 'Confirmar', fn: () => {
       const forma = val('fPag');
+      const taxaPct = TAXA_MAQUINETA[forma] || 0;
+      const taxa = Math.round(bruto * taxaPct * 100) / 100;
       a.status = 'concluido'; a.formaPag = forma;
       /* congela preço, comissão e duração do dia do atendimento: mudar a tabela
          de preços depois não pode reescrever o faturamento do passado */
       const prof = getProf(a.profissionalId) || {};
-      a.valor = s.preco;
+      a.valor = bruto;
+      a.taxaMaquineta = taxa;
       a.comissaoPct = Number(prof.comissao) || 0;
-      a.duracaoMin = Number(s.duracao) || 0;
+      a.duracaoMin = somaBy(itens, i => (getSrv(i.servicoId) || {}).duracao || 0);
       a.concluidaEm = new Date().toISOString();
       if (!SEM_RECEITA.includes(forma)) {
         db.financeiro.push({
-          id: uid(), data: a.data, tipo: 'receita', categoria: s.tipo === 'produto' ? 'Produtos' : 'Atendimento',
-          descricao: `${s.nome} — ${c ? c.nome : '—'}`, valor: s.preco, formaPag: forma,
+          id: uid(), data: a.data, tipo: 'receita', categoria: 'Atendimento',
+          descricao: `${nomes} — ${c ? c.nome : '—'}`, valor: bruto, formaPag: forma,
           auto: true, agendamentoId: a.id
         });
+        if (taxa > 0) {
+          db.financeiro.push({
+            id: uid(), data: a.data, tipo: 'despesa', categoria: 'Taxa de cartão',
+            descricao: `Taxa ${PAG_LABEL[forma]} (${(taxaPct * 100).toFixed(2).replace('.', ',')}%) — ${c ? c.nome : '—'}`,
+            valor: taxa, formaPag: forma, auto: true, agendamentoId: a.id
+          });
+        }
       }
       let msgExtra = '';
       if (c) {
@@ -3007,9 +3123,10 @@ function concluir(id) {
         if (c.pontos >= resgate) msgExtra = `<br><b>${esc(firstName(c.nome))} atingiu ${c.pontos} pontos</b> — resgate liberado!`;
       }
       saveDB(); closeCModal(); closeDrawer(); render();
+      const msgTaxa = taxa > 0 ? ` (taxa de ${money(taxa)}, líquido ${money(bruto - taxa)})` : '';
       toast(SEM_RECEITA.includes(forma)
         ? `Atendimento concluído como <b>${PAG_LABEL[forma]}</b> — sem lançar receita.${msgExtra}`
-        : `Atendimento concluído · receita de <b>${money(s.preco)}</b> lançada.${msgExtra}`, '✅');
+        : `Atendimento concluído · receita de <b>${money(bruto)}</b> lançada${msgTaxa}.${msgExtra}`, '✅');
     } },
     { label: 'Voltar', cls: 'btn-ghost', fn: closeCModal }
   ]);
@@ -3019,9 +3136,18 @@ function avisoSemReceita() {
   const el = document.getElementById('avisoPag');
   if (!el) return;
   const forma = val('fPag');
-  el.innerHTML = SEM_RECEITA.includes(forma)
-    ? `O atendimento entra no histórico e conta pontos de fidelidade, mas <b>não gera receita</b> no financeiro.`
-    : '';
+  if (SEM_RECEITA.includes(forma)) {
+    el.innerHTML = `O atendimento entra no histórico e conta pontos de fidelidade, mas <b>não gera receita</b> no financeiro.`;
+    return;
+  }
+  const pct = TAXA_MAQUINETA[forma];
+  if (pct) {
+    const taxa = Math.round(concluirBruto * pct * 100) / 100;
+    el.innerHTML = `Taxa da maquineta (${(pct * 100).toFixed(2).replace('.', ',')}%): <b style="color:var(--red)">− ${money(taxa)}</b> ·
+      líquido <b style="color:var(--green)">${money(concluirBruto - taxa)}</b>`;
+    return;
+  }
+  el.innerHTML = '';
 }
 
 /* ══════════════════════════════════════════════════════════════
@@ -3095,7 +3221,7 @@ function openClienteDetail(id) {
       <div class="li clickable" onclick="openApptDetail('${a.id}')">
         <div class="lbar" style="background:${corProf(a.profissionalId)}"></div>
         <div class="lbody">
-          <div class="lt">${esc(nomeSrv(a.servicoId))} ${stTag(a.status)}</div>
+          <div class="lt">${esc(nomesServicosDe(a))} ${stTag(a.status)}</div>
           <div class="lm">${fmtDateLong(a.data)} · ${a.hora} · ${esc(nomeProf(a.profissionalId))}</div>
         </div>
         <div class="lend valor-oculto">${money(valorDe(a))}</div>
@@ -3160,7 +3286,7 @@ function salvarServico(id) {
   toast(id ? 'Item atualizado.' : `<b>${esc(nome)}</b> cadastrado.`, '✂️');
 }
 function delServico(id) {
-  const n = db.agendamentos.filter(a => a.servicoId === id).length;
+  const n = db.agendamentoServicos.filter(x => x.servicoId === id).length;
   if (n) { toast(`Este item aparece em ${n} agendamento(s). Marque como inativo em vez de excluir.`, '⚠️'); return; }
   db.servicos = db.servicos.filter(s => s.id !== id);
   saveDB(); closeDrawer(); render();
@@ -3236,7 +3362,7 @@ function openFinForm(id) {
       <div><label>Valor (R$)</label><input type="number" id="fFVal" step="0.01" min="0" value="${f ? f.valor : ''}"></div>
       <div class="full"><label>Forma de pagamento</label>
         <select id="fFPag">
-          ${['pix', 'dinheiro', 'cartao', 'boleto'].map(k => `<option value="${k}"${f && f.formaPag === k ? ' selected' : ''}>${PAG_LABEL[k]}</option>`).join('')}
+          ${['pix', 'dinheiro', 'credito', 'debito', 'boleto'].map(k => `<option value="${k}"${f && f.formaPag === k ? ' selected' : ''}>${PAG_LABEL[k]}</option>`).join('')}
         </select>
       </div>
     </div>`;
