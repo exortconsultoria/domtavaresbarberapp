@@ -116,6 +116,11 @@ create index if not exists idx_financeiro_data on financeiro (data);
 alter table financeiro drop constraint if exists financeiro_forma_pag_check;
 alter table financeiro add constraint financeiro_forma_pag_check
   check (forma_pag in ('pix','dinheiro','credito','debito','cartao','pacote','boleto','permuta'));
+-- de quem é a despesa: da barbearia ou do bolso do Tavares (ele é dono e único barbeiro,
+-- então as duas contas se misturam se não separar)
+alter table financeiro add column if not exists escopo text not null default 'barbearia';
+alter table financeiro drop constraint if exists financeiro_escopo_check;
+alter table financeiro add constraint financeiro_escopo_check check (escopo in ('barbearia','pessoal'));
 
 -- ─────────── metas de faturamento por mês ───────────
 create table if not exists metas (
@@ -139,6 +144,10 @@ create table if not exists custos_fixos (
 );
 -- liga o lançamento gerado ao custo fixo que o originou (evita lançar 2x no mesmo mês)
 alter table financeiro add column if not exists custo_fixo_id uuid references custos_fixos(id) on delete set null;
+-- o custo fixo carrega o escopo; o lançamento gerado herda dele
+alter table custos_fixos add column if not exists escopo text not null default 'barbearia';
+alter table custos_fixos drop constraint if exists custos_fixos_escopo_check;
+alter table custos_fixos add constraint custos_fixos_escopo_check check (escopo in ('barbearia','pessoal'));
 
 -- ─────────── log de disparos de WhatsApp ───────────
 create table if not exists mensagens_enviadas (

@@ -1042,9 +1042,11 @@ const MAP = {
   financeiro: { tabela: 'financeiro',
     toRow: o => ({ id: o.id, data: o.data, tipo: o.tipo, categoria: o.categoria || 'Geral', descricao: o.descricao,
                    valor: num(o.valor) || 0, forma_pag: txt(o.formaPag), auto: !!o.auto,
+                   escopo: o.escopo === 'pessoal' ? 'pessoal' : 'barbearia',
                    agendamento_id: o.agendamentoId || null, custo_fixo_id: o.custoFixoId || null }),
     fromRow: r => ({ id: r.id, data: r.data, tipo: r.tipo, categoria: r.categoria, descricao: r.descricao,
                      valor: Number(r.valor) || 0, formaPag: r.forma_pag, auto: !!r.auto,
+                     escopo: r.escopo === 'pessoal' ? 'pessoal' : 'barbearia',
                      agendamentoId: r.agendamento_id || undefined, custoFixoId: r.custo_fixo_id || undefined }) },
   /* projecao: quanto o dono espera faturar naquele mês (diferente da meta, que é onde ele quer chegar) */
   metas: { tabela: 'metas',
@@ -1053,9 +1055,11 @@ const MAP = {
                      projecao: r.projecao === null || r.projecao === undefined ? undefined : Number(r.projecao) }) },
   custosFixos: { tabela: 'custos_fixos',
     toRow: o => ({ id: o.id, nome: o.nome, categoria: o.categoria || 'Geral', valor: num(o.valor) || 0,
-                   dia_venc: num(o.diaVenc) || 5, ativo: !!o.ativo }),
+                   dia_venc: num(o.diaVenc) || 5, ativo: !!o.ativo,
+                   escopo: o.escopo === 'pessoal' ? 'pessoal' : 'barbearia' }),
     fromRow: r => ({ id: r.id, nome: r.nome, categoria: r.categoria, valor: Number(r.valor) || 0,
-                     diaVenc: Number(r.dia_venc) || 5, ativo: !!r.ativo }) },
+                     diaVenc: Number(r.dia_venc) || 5, ativo: !!r.ativo,
+                     escopo: r.escopo === 'pessoal' ? 'pessoal' : 'barbearia' }) },
   msgLog: { tabela: 'mensagens_enviadas',
     toRow: o => ({ id: o.id, cliente_id: o.clienteId, segmento: o.seg, data: o.data }),
     fromRow: r => ({ id: r.id, clienteId: r.cliente_id, seg: r.segmento, data: r.data }) }
@@ -1351,18 +1355,28 @@ function comissaoDe(ag) {
     : Number((getProf(ag.profissionalId) || {}).comissao) || 0;
   return valorDe(ag) * pct / 100;
 }
+/* despesa sem escopo definido conta como da barbearia (é o padrão e o caso comum) */
+const ehPessoal = f => f.escopo === 'pessoal';
 function metrics(mk) {
   mk = mk || curMonthKey();
   const fin = db.financeiro.filter(f => monthKey(f.data) === mk);
   const receita = somaBy(fin.filter(f => f.tipo === 'receita'), f => f.valor);
-  const despesa = somaBy(fin.filter(f => f.tipo === 'despesa'), f => f.valor);
+  const despesas = fin.filter(f => f.tipo === 'despesa');
+  const despesa = somaBy(despesas, f => f.valor);                          // total que saiu do caixa
+  const despesaBarbearia = somaBy(despesas.filter(f => !ehPessoal(f)), f => f.valor);
+  const despesaPessoal = somaBy(despesas.filter(ehPessoal), f => f.valor);
   const conclMes = db.agendamentos.filter(a => a.status === 'concluido' && monthKey(a.data) === mk);
   const ticket = conclMes.length ? somaBy(conclMes, a => valorDe(a)) / conclMes.length : 0;
   const hoje = db.agendamentos.filter(a => a.data === todayISO() && a.status !== 'cancelado');
   const comissoes = somaBy(conclMes, comissaoDe);
   const meta = db.metas.find(m => m.mes === mk);
+  /* lucro = resultado do NEGÓCIO (não desconta o que é do bolso dele);
+     sobraFinal = o que realmente sobra depois de pagar as contas pessoais */
+  const lucro = receita - despesaBarbearia - comissoes;
   return {
-    mk, receita, despesa, lucro: receita - despesa - comissoes, conclMes, ticket, hoje, comissoes,
+    mk, receita, despesa, despesaBarbearia, despesaPessoal,
+    lucro, sobraFinal: lucro - despesaPessoal,
+    conclMes, ticket, hoje, comissoes,
     meta: meta ? meta.valor : 0, metaPct: meta && meta.valor ? pct(receita, meta.valor) : null
   };
 }
@@ -2356,7 +2370,8 @@ function gravarCustosDoMes(mk) {
     const dia = Math.min(Number(c.diaVenc) || 5, ultimoDia);   // dia 31 em mês de 30 não pode virar data inválida
     db.financeiro.push({
       id: uid(), data: `${mk}-${pad2(dia)}`, tipo: 'despesa', categoria: c.categoria || 'Geral',
-      descricao: c.nome, valor: c.valor, formaPag: null, auto: false, custoFixoId: c.id
+      descricao: c.nome, valor: c.valor, formaPag: null, auto: false, custoFixoId: c.id,
+      escopo: c.escopo === 'pessoal' ? 'pessoal' : 'barbearia'   // herda de quem é a conta
     });
   });
   return { qtd: pendentes.length, total: somaBy(pendentes, c => c.valor), vinculados };
@@ -2424,7 +2439,9 @@ function renderCustosFixos() {
     <button class="btn" style="margin-left:auto" onclick="openCustoForm()">+ Novo custo fixo</button>
   </div>
   <div class="stat-grid stat-3" style="margin-bottom:16px">
-    ${stat(ICO.box, 'Total por mês', money(totalCustosFixos()), `${custosAtivos().length} conta(s) ativa(s)`, 'valor', 'neg')}
+    ${stat(ICO.box, 'Total por mês', money(totalCustosFixos()),
+      `barbearia ${moneyShort(somaBy(custosAtivos().filter(c => c.escopo !== 'pessoal'), c => c.valor))} · Tavares ${moneyShort(somaBy(custosAtivos().filter(c => c.escopo === 'pessoal'), c => c.valor))}`,
+      'valor', 'neg')}
     ${stat(ICO.clock, 'A lançar neste mês', String(pendentes.length), pendentes.length ? 'ainda fora do financeiro' : 'tudo lançado', '', pendentes.length ? 'neg' : 'pos')}
     ${stat(ICO.money, 'Sobra sobre os fixos', money(m.receita - totalCustosFixos()), `faturado ${moneyShort(m.receita)} no mês`, 'valor', (m.receita - totalCustosFixos()) < 0 ? 'neg' : 'pos')}
   </div>
@@ -2445,19 +2462,20 @@ function renderCustosFixos() {
     <div class="tbl-header"><div class="tbl-title">Custos cadastrados</div>
       <div style="font-size:.76rem;color:var(--text-dim)">${lista.length} item(ns)</div></div>
     <div class="tbl-scroll"><table>
-      <thead><tr><th>Conta</th><th>Categoria</th><th>Vence</th><th>Valor</th><th>Status</th></tr></thead>
+      <thead><tr><th>Conta</th><th>De quem</th><th>Categoria</th><th>Vence</th><th>Valor</th><th>Status</th></tr></thead>
       <tbody>${lista.length ? lista.map(c => {
         const lancado = custosLancadosNoMes(mk).has(c.id);
         return `<tr onclick="openCustoForm('${c.id}')">
           <td><b>${esc(c.nome)}</b></td>
+          <td>${c.escopo === 'pessoal' ? '<span class="tag neutro">Tavares</span>' : '<span class="tag brass">Barbearia</span>'}</td>
           <td>${esc(c.categoria || '—')}</td>
           <td>dia ${c.diaVenc}</td>
-          <td>${money(c.valor)}</td>
+          <td class="valor-oculto">${money(c.valor)}</td>
           <td>${!c.ativo ? '<span class="tag neutro">inativo</span>'
                 : lancado ? '<span class="tag pos">lançado</span>'
                 : '<span class="tag brass">a lançar</span>'}</td>
         </tr>`;
-      }).join('') : `<tr><td colspan="5"><div class="empty-soft">Nenhum custo fixo cadastrado. Comece pelo aluguel.</div></td></tr>`}
+      }).join('') : `<tr><td colspan="6"><div class="empty-soft">Nenhum custo fixo cadastrado. Comece pelo aluguel.</div></td></tr>`}
       </tbody>
     </table></div>
   </div>`;
@@ -2467,6 +2485,12 @@ function openCustoForm(id) {
   const body = `
     <div class="form-grid">
       <div class="full"><label>Nome da conta</label><input id="fCNome" value="${esc(c ? c.nome : '')}" placeholder="Ex.: Aluguel do ponto"></div>
+      <div class="full"><label>Essa conta é de quê?</label>
+        <select id="fCEscopo">
+          <option value="barbearia"${!c || c.escopo !== 'pessoal' ? ' selected' : ''}>Da barbearia (ponto, energia, internet da loja...)</option>
+          <option value="pessoal"${c && c.escopo === 'pessoal' ? ' selected' : ''}>Pessoal do Tavares (aluguel do ap, pensão, internet de casa...)</option>
+        </select>
+      </div>
       <div><label>Categoria</label><input id="fCCat" value="${esc(c ? c.categoria : '')}" placeholder="Aluguel, Energia, Água..."></div>
       <div><label>Valor (R$)</label><input type="number" id="fCVal" step="0.01" min="0" value="${c ? c.valor : ''}"></div>
       <div><label>Vence no dia</label><input type="number" id="fCDia" min="1" max="31" value="${c ? c.diaVenc : 5}"></div>
@@ -2488,7 +2512,8 @@ function salvarCusto(id) {
   if (!nome) { toast('Dê um nome para a conta.', '⚠️'); return; }
   if (!(valor > 0)) { toast('Informe um valor maior que zero.', '⚠️'); return; }
   const dia = Math.min(31, Math.max(1, Number(val('fCDia')) || 5));
-  const dados = { nome, categoria: val('fCCat').trim() || 'Geral', valor, diaVenc: dia, ativo: val('fCAtivo') === '1' };
+  const dados = { nome, categoria: val('fCCat').trim() || 'Geral', valor, diaVenc: dia,
+                  ativo: val('fCAtivo') === '1', escopo: val('fCEscopo') || 'barbearia' };
   if (!Array.isArray(db.custosFixos)) db.custosFixos = [];
   if (id) Object.assign(db.custosFixos.find(x => x.id === id), dados);
   else db.custosFixos.push(Object.assign({ id: uid() }, dados));
@@ -2592,6 +2617,54 @@ function renderFinanceiro() {
 }
 function irParaMetas() { finTab = 'metas'; switchTab('financeiro'); }
 
+/* ── Gráfico de despesas: onde o dinheiro está indo, por categoria ──
+   Alterna entre as contas da barbearia e as do bolso do Tavares. */
+let despEscopo = 'barbearia';
+function setDespEscopo(e) { despEscopo = e; render(); }
+function graficoDespesas(mk) {
+  const doMes = db.financeiro.filter(f => f.tipo === 'despesa' && monthKey(f.data) === mk);
+  const daVez = doMes.filter(f => (despEscopo === 'pessoal') === ehPessoal(f));
+  const outro = doMes.filter(f => (despEscopo === 'pessoal') !== ehPessoal(f));
+  const totalVez = somaBy(daVez, f => f.valor), totalOutro = somaBy(outro, f => f.valor);
+
+  const porCat = {};
+  daVez.forEach(f => { const k = f.categoria || 'Geral'; porCat[k] = (porCat[k] || 0) + f.valor; });
+  const barras = Object.entries(porCat).map(([k, v]) => ({ k, v })).sort((a, b) => b.v - a.v);
+  const maior = Math.max(1, ...barras.map(b => b.v));
+  const ehBarbearia = despEscopo === 'barbearia';
+
+  const historia = !barras.length
+    ? `Nenhuma despesa ${ehBarbearia ? 'da barbearia' : 'pessoal'} lançada em ${fmtMonth(mk)}.`
+    : `${ehBarbearia ? 'A barbearia' : 'O Tavares'} gastou <b class="valor-oculto">${money(totalVez)}</b> em ${fmtMonth(mk)}. ` +
+      `O maior peso é <b>${esc(barras[0].k)}</b>, com <b class="valor-oculto">${money(barras[0].v)}</b>` +
+      (totalVez > 0 ? ` (${pct(barras[0].v, totalVez)}% do total)` : '') + '.';
+
+  return `
+  <div class="analise" style="margin-top:16px">
+    <div class="an-tit" style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap">
+      <span>Para onde vai o dinheiro</span>
+      <span class="periodo-seg">
+        <button class="${ehBarbearia ? 'active' : ''}" onclick="setDespEscopo('barbearia')">Barbearia</button>
+        <button class="${!ehBarbearia ? 'active' : ''}" onclick="setDespEscopo('pessoal')">Tavares</button>
+      </span>
+    </div>
+    <div class="an-hist">${historia}</div>
+    ${barras.length ? barras.map(b => `
+      <div class="barra">
+        <div class="ba-top">
+          <span class="ba-rot">${esc(b.k)}</span>
+          <span class="ba-val valor-oculto">${money(b.v)}</span>
+        </div>
+        <div class="ba-track"><div class="ba-fill" style="width:${Math.max(4, pct(b.v, maior))}%;background:var(--red)"></div></div>
+      </div>`).join('') : `<div class="empty-soft">Sem despesas ${ehBarbearia ? 'da barbearia' : 'pessoais'} neste mês.</div>`}
+    ${totalOutro > 0 ? `<div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--border);font-size:.8rem;color:var(--text-dim)">
+      ${ehBarbearia ? 'Fora isso, o Tavares' : 'Fora isso, a barbearia'} gastou
+      <b class="valor-oculto">${money(totalOutro)}</b> —
+      <button class="mini" style="margin-left:4px" onclick="setDespEscopo('${ehBarbearia ? 'pessoal' : 'barbearia'}')">ver</button>
+    </div>` : ''}
+  </div>`;
+}
+
 function finMov() {
   const m = metrics(finMes);
   const list = db.financeiro.filter(f => monthKey(f.data) === m.mk).sort((a, b) => b.data.localeCompare(a.data));
@@ -2606,11 +2679,13 @@ function finMov() {
   return `
   <div class="stat-grid">
     ${stat(ICO.money, 'Receitas do mês', money(m.receita), fmtMonth(m.mk), 'valor', 'pos')}
-    ${stat(ICO.box, 'Despesas do mês', money(m.despesa), 'tudo que saiu', 'valor', 'neg')}
-    ${equipeSimples()
-      ? stat(ICO.hand, 'Atendimentos', String(m.conclMes.length), 'concluídos no mês', '')
-      : stat(ICO.hand, 'Comissões', money(m.comissoes), 'sobre concluídos', 'valor', 'neg')}
-    ${stat(ICO.ticket, 'Resultado', money(m.lucro), equipeSimples() ? 'receitas − despesas' : 'receitas − despesas − comissões', 'valor', m.lucro < 0 ? 'neg' : 'pos')}
+    ${stat(ICO.box, 'Despesas da barbearia', money(m.despesaBarbearia), 'sem as contas pessoais', 'valor', 'neg')}
+    ${stat(ICO.ticket, 'Resultado da barbearia', money(m.lucro), 'receitas − despesas do negócio', 'valor', m.lucro < 0 ? 'neg' : 'pos')}
+    ${m.despesaPessoal > 0
+      ? stat(ICO.hand, 'Sobra pro Tavares', money(m.sobraFinal), `depois de ${moneyShort(m.despesaPessoal)} de contas pessoais`, 'valor', m.sobraFinal < 0 ? 'neg' : 'pos')
+      : (equipeSimples()
+        ? stat(ICO.hand, 'Atendimentos', String(m.conclMes.length), 'concluídos no mês', '')
+        : stat(ICO.hand, 'Comissões', money(m.comissoes), 'sobre concluídos', 'valor', 'neg'))}
   </div>
   <div class="p-row2">
     <div class="p-block" style="grid-column:1/-1">
@@ -2627,6 +2702,8 @@ function finMov() {
       </div>` : ''}
     </div>
   </div>
+
+  ${graficoDespesas(m.mk)}
   ${custosPendentes(m.mk).length ? `<div class="p-block" style="margin-top:16px;border-color:var(--accent)">
     <span class="pb-label">Custos fixos de ${fmtMonth(m.mk)}</span>
     <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
@@ -2647,7 +2724,8 @@ function finMov() {
       <tbody>${list.length ? list.map(f => `
         <tr onclick="${f.auto ? `toast('Lançamento gerado automaticamente pelo atendimento concluído.','🔒')` : `openFinForm('${f.id}')`}">
           <td>${fmtDate(f.data)}</td>
-          <td><b>${esc(f.descricao)}</b> ${f.auto ? '<span class="tag brass">auto</span>' : ''}</td>
+          <td><b>${esc(f.descricao)}</b> ${f.auto ? '<span class="tag brass">auto</span>' : ''}${
+            f.tipo === 'despesa' && ehPessoal(f) ? ' <span class="tag neutro">pessoal</span>' : ''}</td>
           <td>${esc(f.categoria || '—')}</td>
           <td>${PAG_LABEL[f.formaPag] || '—'}</td>
           <td style="color:${f.tipo === 'receita' ? 'var(--green-bright)' : 'var(--red-bright)'};font-weight:700">
@@ -3590,12 +3668,19 @@ function openFinForm(id) {
   const body = `
     <div class="form-grid">
       <div><label>Tipo</label>
-        <select id="fFTipo">
+        <select id="fFTipo" onchange="finFormEscopo()">
           <option value="receita"${!f || f.tipo === 'receita' ? ' selected' : ''}>Receita</option>
           <option value="despesa"${f && f.tipo === 'despesa' ? ' selected' : ''}>Despesa</option>
         </select>
       </div>
       <div><label>Data</label><input type="date" id="fFData" value="${f ? f.data : todayISO()}"></div>
+      <div class="full" id="wrapEscopo">
+        <label>Essa despesa é de quê?</label>
+        <select id="fFEscopo">
+          <option value="barbearia"${!f || f.escopo !== 'pessoal' ? ' selected' : ''}>Da barbearia (aluguel do ponto, insumos, energia...)</option>
+          <option value="pessoal"${f && f.escopo === 'pessoal' ? ' selected' : ''}>Pessoal do Tavares (aluguel do ap, pensão, mercado...)</option>
+        </select>
+      </div>
       <div class="full"><label>Descrição</label><input id="fFDesc" value="${esc(f ? f.descricao : '')}" placeholder="Ex.: Aluguel do ponto"></div>
       <div><label>Categoria</label><input id="fFCat" value="${esc(f ? f.categoria : '')}" placeholder="Aluguel, Insumos, Produtos..."></div>
       <div><label>Valor (R$)</label><input type="number" id="fFVal" step="0.01" min="0" value="${f ? f.valor : ''}"></div>
@@ -3609,13 +3694,21 @@ function openFinForm(id) {
   if (f) actions.push({ label: 'Excluir', cls: 'btn-danger', fn: () => delFin(id) });
   actions.push({ label: 'Cancelar', cls: 'btn-ghost', fn: closeDrawer });
   openDrawer(f ? 'Editar lançamento' : 'Novo lançamento', body, actions);
+  finFormEscopo();
+}
+/* receita é sempre da barbearia (ele é o único barbeiro): o campo só faz sentido em despesa */
+function finFormEscopo() {
+  const w = document.getElementById('wrapEscopo');
+  if (w) w.style.display = val('fFTipo') === 'despesa' ? '' : 'none';
 }
 function salvarFin(id) {
   const desc = val('fFDesc').trim(), valor = Number(val('fFVal'));
   if (!desc || !(valor > 0)) { toast('Informe descrição e um valor maior que zero.', '⚠️'); return; }
+  const tipo = val('fFTipo');
   const dados = {
-    data: val('fFData') || todayISO(), tipo: val('fFTipo'), categoria: val('fFCat').trim() || 'Geral',
-    descricao: desc, valor, formaPag: val('fFPag'), auto: false
+    data: val('fFData') || todayISO(), tipo, categoria: val('fFCat').trim() || 'Geral',
+    descricao: desc, valor, formaPag: val('fFPag'), auto: false,
+    escopo: tipo === 'despesa' ? (val('fFEscopo') || 'barbearia') : 'barbearia'
   };
   if (id) Object.assign(db.financeiro.find(x => x.id === id), dados);
   else db.financeiro.push(Object.assign({ id: uid() }, dados));
