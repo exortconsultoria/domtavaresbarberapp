@@ -119,6 +119,10 @@ alter table financeiro add constraint financeiro_forma_pag_check
 -- de quem é a despesa: da barbearia ou do bolso do Tavares (ele é dono e único barbeiro,
 -- então as duas contas se misturam se não separar)
 alter table financeiro add column if not exists escopo text not null default 'barbearia';
+-- lançado != pago: a conta do mês que vem já está prevista, mas não saiu do bolso
+alter table financeiro add column if not exists pago boolean not null default true;
+-- despesa com data futura é projeção, nunca foi paga
+update financeiro set pago = false where tipo = 'despesa' and data > current_date;
 alter table financeiro drop constraint if exists financeiro_escopo_check;
 alter table financeiro add constraint financeiro_escopo_check check (escopo in ('barbearia','pessoal'));
 

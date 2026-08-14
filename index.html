@@ -1072,11 +1072,11 @@ const MAP = {
   financeiro: { tabela: 'financeiro',
     toRow: o => ({ id: o.id, data: o.data, tipo: o.tipo, categoria: o.categoria || 'Geral', descricao: o.descricao,
                    valor: num(o.valor) || 0, forma_pag: txt(o.formaPag), auto: !!o.auto,
-                   escopo: o.escopo === 'pessoal' ? 'pessoal' : 'barbearia',
+                   escopo: o.escopo === 'pessoal' ? 'pessoal' : 'barbearia', pago: o.pago !== false,
                    agendamento_id: o.agendamentoId || null, custo_fixo_id: o.custoFixoId || null }),
     fromRow: r => ({ id: r.id, data: r.data, tipo: r.tipo, categoria: r.categoria, descricao: r.descricao,
                      valor: Number(r.valor) || 0, formaPag: r.forma_pag, auto: !!r.auto,
-                     escopo: r.escopo === 'pessoal' ? 'pessoal' : 'barbearia',
+                     escopo: r.escopo === 'pessoal' ? 'pessoal' : 'barbearia', pago: r.pago !== false,
                      agendamentoId: r.agendamento_id || undefined, custoFixoId: r.custo_fixo_id || undefined }) },
   /* projecao: quanto o dono espera faturar naquele mês (diferente da meta, que é onde ele quer chegar) */
   metas: { tabela: 'metas',
@@ -2401,7 +2401,8 @@ function gravarCustosDoMes(mk) {
     db.financeiro.push({
       id: uid(), data: `${mk}-${pad2(dia)}`, tipo: 'despesa', categoria: c.categoria || 'Geral',
       descricao: c.nome, valor: c.valor, formaPag: null, auto: false, custoFixoId: c.id,
-      escopo: c.escopo === 'pessoal' ? 'pessoal' : 'barbearia'   // herda de quem é a conta
+      escopo: c.escopo === 'pessoal' ? 'pessoal' : 'barbearia',   // herda de quem é a conta
+      pago: mk <= curMonthKey()   // mês futuro nasce como previsto, não como pago
     });
   });
   return { qtd: pendentes.length, total: somaBy(pendentes, c => c.valor), vinculados };
@@ -2761,6 +2762,64 @@ function blocoDespesas(mk, escopo, opts) {
   </div>`;
 }
 
+/* ── Quanto ele acha que vai faturar × quanto já faturou ──
+   Mês corrente compara com o ritmo; mês passado vira placar do que deu. */
+function flagProjecao(m) {
+  const mk = m.mk;
+  const alvo = projecaoDoMes(mk);
+  const hoje = new Date();
+  const ehMesAtual = mk === curMonthKey();
+  const diasNoMes = new Date(Number(mk.slice(0, 4)), Number(mk.slice(5, 7)), 0).getDate();
+  const diaAtual = ehMesAtual ? hoje.getDate() : diasNoMes;
+  const ritmo = diaAtual > 0 ? m.receita / diaAtual : 0;
+  const noRitmo = ritmo * diasNoMes;
+  const falta = alvo - m.receita;
+  const atingido = pct(m.receita, alvo || 1);
+
+  /* quanto ele precisa faturar só pra não ficar no vermelho */
+  const equilibrio = m.despesaBarbearia + m.despesaPessoal;
+  const ticket = m.ticket || 0;
+
+  const historia = !alvo
+    ? 'Você ainda não disse quanto espera faturar neste mês.'
+    : ehMesAtual
+      ? m.receita >= alvo
+        ? `<b style="color:var(--green)">Projeção batida!</b> Você já passou em <b class="valor-oculto">${money(m.receita - alvo)}</b>, e ainda faltam ${diasNoMes - diaAtual} dia(s).`
+        : `Faltam <b class="valor-oculto">${money(falta)}</b> para a sua projeção` +
+          (ticket > 0 ? `, cerca de <b>${Math.ceil(falta / ticket)} atendimentos</b>` : '') + '. ' +
+          (noRitmo >= alvo
+            ? `No ritmo de hoje você fecha em <b class="valor-oculto" style="color:var(--green)">${money(noRitmo)}</b> — dá.`
+            : `No ritmo de hoje você fecha em <b class="valor-oculto" style="color:var(--red)">${money(noRitmo)}</b> — precisa acelerar.`)
+      : m.receita >= alvo
+        ? `Fechou em <b class="valor-oculto">${money(m.receita)}</b> e bateu a projeção de ${money(alvo)}.`
+        : `Fechou em <b class="valor-oculto">${money(m.receita)}</b>, <b class="valor-oculto" style="color:var(--red)">${money(falta)}</b> abaixo do esperado.`;
+
+  return `
+  <div class="analise" style="margin-bottom:16px">
+    <div class="an-tit" style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap">
+      <span>Quanto você espera faturar</span>
+      <button class="mini" onclick="openProjecaoMes('${mk}')">${alvo ? 'Mudar: ' + moneyShort(alvo) : 'Definir'}</button>
+    </div>
+    <div class="an-hist">${historia}</div>
+    ${alvo ? `
+    <div class="goal" style="margin-top:0">
+      <div class="gh">
+        <span class="gt">${atingido}% da projeção</span>
+        <span class="gv valor-oculto">${money(m.receita)} de ${money(alvo)}</span>
+      </div>
+      <div class="gtrack"><div class="gfill" style="width:${Math.min(100, atingido)}%;background:${m.receita >= alvo ? 'var(--green)' : 'linear-gradient(90deg,var(--accent),var(--accent-bright))'}"></div></div>
+    </div>` : ''}
+    ${equilibrio > 0 ? `<div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border);font-size:.82rem;color:var(--text-dim);line-height:1.6">
+      Para não ficar no vermelho, contando as contas da barbearia e as suas, você precisa de
+      <b class="valor-oculto" style="color:var(--text)">${money(equilibrio)}</b> no mês${
+        ticket > 0 ? ` — uns <b>${Math.ceil(equilibrio / ticket)} atendimentos</b>` : ''}.
+      ${m.receita >= equilibrio
+        ? `<b style="color:var(--green)">Já passou disso.</b>`
+        : `Faltam <b class="valor-oculto" style="color:var(--red)">${money(equilibrio - m.receita)}</b>.`}
+    </div>` : ''}
+  </div>`;
+}
+
 /* ── Cascata: o caminho do dinheiro no mês ──
    Colunas lado a lado mostram tamanho; a cascata mostra o que entrou,
    o que cada lado consumiu e o que sobrou no fim. */
@@ -2835,6 +2894,8 @@ function finMov() {
         ? stat(ICO.hand, 'Atendimentos', String(m.conclMes.length), 'concluídos no mês', '')
         : stat(ICO.hand, 'Comissões', money(m.comissoes), 'sobre concluídos', 'valor', 'neg'))}
   </div>
+  ${flagProjecao(m)}
+
   <div class="p-row2">
     <div class="analise">
       <div class="an-tit">Como o cliente pagou</div>
@@ -2898,6 +2959,123 @@ function finMov() {
             ${f.tipo === 'receita' ? '+' : '−'} ${money(f.valor)}</td>
           <td style="text-align:right">${f.auto ? '' : `<button class="mini no" onclick="event.stopPropagation();delFin('${f.id}')">excluir</button>`}</td>
         </tr>`).join('') : `<tr><td colspan="6"><div class="empty-soft">Nenhum lançamento neste mês.</div></td></tr>`}
+      </tbody>
+    </table></div>
+  </div>`;
+}
+
+/* ── Contas do mês: o custo fixo cadastrado cruzado com o que já foi
+   lançado, pra ele dar baixa e corrigir valor variável (energia, água) ── */
+function contasDoMes(mk, escopo) {
+  const lancados = db.financeiro.filter(f => f.custoFixoId && monthKey(f.data) === mk);
+  return (db.custosFixos || [])
+    .filter(c => c.ativo && (c.escopo === 'pessoal') === (escopo === 'pessoal'))
+    .map(c => ({ custo: c, lanc: lancados.find(f => f.custoFixoId === c.id) || null }))
+    .sort((a, b) => (a.custo.diaVenc - b.custo.diaVenc) || a.custo.nome.localeCompare(b.custo.nome));
+}
+function marcarPago(idLanc, pago) {
+  const f = db.financeiro.find(x => x.id === idLanc);
+  if (!f) return;
+  f.pago = pago;
+  saveDB(); render();
+  toast(pago ? `<b>${esc(f.descricao)}</b> marcada como paga.` : `<b>${esc(f.descricao)}</b> voltou para "a pagar".`, pago ? '✅' : '↩️');
+}
+/* lança a conta de um mês só, já pedindo o valor — serve pra energia/água,
+   que variam todo mês e a projeção do cadastro é só um chute */
+function openContaDoMes(custoId, mk) {
+  const c = (db.custosFixos || []).find(x => x.id === custoId);
+  if (!c) return;
+  const lanc = db.financeiro.find(f => f.custoFixoId === custoId && monthKey(f.data) === mk);
+  const ultimoDia = new Date(Number(mk.slice(0, 4)), Number(mk.slice(5, 7)), 0).getDate();
+  const dia = Math.min(Number(c.diaVenc) || 5, ultimoDia);
+  const body = `
+    <div style="font-size:.86rem;color:var(--text-dim);line-height:1.6;margin-bottom:16px">
+      <b style="color:var(--text)">${esc(c.nome)}</b> · vence dia ${c.diaVenc} de ${fmtMonth(mk)}.
+      ${lanc ? '' : 'Esta conta ainda não foi lançada neste mês.'}
+    </div>
+    <div class="form-grid">
+      <div><label>Valor real (R$)</label><input type="number" id="fCMValor" step="0.01" min="0" value="${lanc ? lanc.valor : c.valor}"></div>
+      <div><label>Vence dia</label><input type="date" id="fCMData" value="${lanc ? lanc.data : `${mk}-${pad2(dia)}`}"></div>
+      <div class="full"><label>Situação</label>
+        <select id="fCMPago">
+          <option value="0"${lanc && lanc.pago ? '' : ' selected'}>A pagar</option>
+          <option value="1"${lanc && lanc.pago ? ' selected' : ''}>Já paguei</option>
+        </select>
+      </div>
+    </div>
+    <div style="font-size:.76rem;color:var(--text-mute);margin-top:12px;line-height:1.5">
+      O cadastro da conta continua com <b>${money(c.valor)}</b>. Mudar aqui vale só para ${fmtMonth(mk)} —
+      é o que serve pra energia e água, que mudam todo mês.
+    </div>`;
+  const acoes = [{ label: lanc ? 'Salvar' : 'Lançar', fn: () => {
+    const v = Number(val('fCMValor'));
+    if (!(v >= 0)) { toast('Informe um valor válido.', '⚠️'); return; }
+    const pago = val('fCMPago') === '1';
+    if (lanc) { lanc.valor = v; lanc.data = val('fCMData') || lanc.data; lanc.pago = pago; }
+    else db.financeiro.push({
+      id: uid(), data: val('fCMData') || `${mk}-${pad2(dia)}`, tipo: 'despesa',
+      categoria: c.categoria || 'Geral', descricao: c.nome, valor: v, formaPag: null,
+      auto: false, custoFixoId: c.id, escopo: c.escopo === 'pessoal' ? 'pessoal' : 'barbearia', pago
+    });
+    saveDB(); closeCModal(); render();
+    toast(`<b>${esc(c.nome)}</b> de ${fmtMonth(mk)}: ${money(v)}${pago ? ' · paga' : ' · a pagar'}.`, '🧾');
+  } }];
+  if (lanc) acoes.push({ label: 'Desfazer lançamento', cls: 'btn-danger', fn: () => {
+    db.financeiro = db.financeiro.filter(f => f.id !== lanc.id);
+    saveDB(); closeCModal(); render();
+    toast('Lançamento desfeito.', '🗑️');
+  } });
+  acoes.push({ label: 'Cancelar', cls: 'btn-ghost', fn: closeCModal });
+  openCModal('Conta do mês', body, acoes);
+}
+function tabelaContas(mk, escopo) {
+  const linhas = contasDoMes(mk, escopo);
+  if (!linhas.length) return '';
+  const hoje = todayISO();
+  const pago = somaBy(linhas.filter(l => l.lanc && l.lanc.pago), l => l.lanc.valor);
+  const aPagar = somaBy(linhas.filter(l => l.lanc && !l.lanc.pago), l => l.lanc.valor);
+  const naoLancado = somaBy(linhas.filter(l => !l.lanc), l => l.custo.valor);
+  const vencidas = linhas.filter(l => l.lanc && !l.lanc.pago && l.lanc.data < hoje);
+
+  return `
+  <div class="tbl-wrap" style="margin-top:16px">
+    <div class="tbl-header">
+      <div><div class="tbl-title">Contas de ${fmtMonth(mk)}</div>
+        <div style="font-size:.76rem;color:var(--text-dim);margin-top:4px">
+          Toque na conta para corrigir o valor — energia e água mudam todo mês.
+        </div></div>
+    </div>
+    <div style="font-size:.84rem;color:var(--text-dim);line-height:1.6;margin-bottom:12px">
+      ${vencidas.length
+        ? `<b style="color:var(--red)">${vencidas.length} conta(s) vencida(s)</b> sem baixa. `
+        : ''}Já pagou <b class="valor-oculto" style="color:var(--green)">${money(pago)}</b>${
+        aPagar > 0 ? ` · faltam <b class="valor-oculto" style="color:var(--red)">${money(aPagar)}</b>` : ''}${
+        naoLancado > 0 ? ` · <b class="valor-oculto">${money(naoLancado)}</b> ainda nem lançados` : ''}.
+    </div>
+    <div class="tbl-scroll"><table>
+      <thead><tr><th>Conta</th><th>Valor</th><th>Vence</th><th>Situação</th><th></th></tr></thead>
+      <tbody>
+        ${linhas.map(l => {
+          const v = l.lanc ? l.lanc.valor : l.custo.valor;
+          const data = l.lanc ? l.lanc.data : `${mk}-${pad2(Math.min(l.custo.diaVenc, new Date(Number(mk.slice(0,4)), Number(mk.slice(5,7)), 0).getDate()))}`;
+          const vencida = l.lanc && !l.lanc.pago && data < hoje;
+          const variou = l.lanc && Number(l.lanc.valor) !== Number(l.custo.valor);
+          return `<tr onclick="openContaDoMes('${l.custo.id}','${mk}')">
+            <td><b>${esc(l.custo.nome)}</b>${variou ? ` <span class="tag neutro" title="cadastro: ${money(l.custo.valor)}">ajustado</span>` : ''}</td>
+            <td class="valor-oculto">${money(v)}</td>
+            <td${vencida ? ' style="color:var(--red);font-weight:700"' : ''}>${fmtDate(data)}</td>
+            <td>${!l.lanc ? '<span class="tag neutro">não lançada</span>'
+              : l.lanc.pago ? '<span class="tag pos">paga</span>'
+              : vencida ? '<span class="tag neg">vencida</span>' : '<span class="tag brass">a pagar</span>'}</td>
+            <td style="text-align:right" onclick="event.stopPropagation()">
+              ${!l.lanc
+                ? `<button class="mini" onclick="openContaDoMes('${l.custo.id}','${mk}')">Lançar</button>`
+                : l.lanc.pago
+                  ? `<button class="mini" onclick="marcarPago('${l.lanc.id}',false)">Desfazer</button>`
+                  : `<button class="mini ok" onclick="marcarPago('${l.lanc.id}',true)">Marcar paga</button>`}
+            </td>
+          </tr>`;
+        }).join('')}
       </tbody>
     </table></div>
   </div>`;
@@ -2976,9 +3154,11 @@ function finAnaliseEscopo(escopo) {
     </div>
   </div>
 
+  ${tabelaContas(mk, escopo)}
+
   <div class="tbl-wrap" style="margin-top:16px">
     <div class="tbl-header">
-      <div class="tbl-title">Lançamentos de ${fmtMonth(mk)}</div>
+      <div class="tbl-title">Todos os lançamentos de ${fmtMonth(mk)}</div>
       <button class="btn" onclick="openFinForm()">+ Novo lançamento</button>
     </div>
     <div class="tbl-scroll"><table>
@@ -2986,7 +3166,8 @@ function finAnaliseEscopo(escopo) {
       <tbody>${lista.length ? lista.slice().sort((a, b) => b.data.localeCompare(a.data)).map(f => `
         <tr onclick="${f.auto ? `toast('Lançamento gerado automaticamente pelo atendimento.','🔒')` : `openFinForm('${f.id}')`}">
           <td>${fmtDate(f.data)}</td>
-          <td><b>${esc(f.descricao)}</b>${f.auto ? ' <span class="tag brass">auto</span>' : ''}</td>
+          <td><b>${esc(f.descricao)}</b>${f.auto ? ' <span class="tag brass">auto</span>' : ''}${
+            f.custoFixoId && !f.pago ? ' <span class="tag neg">a pagar</span>' : ''}</td>
           <td>${esc(f.categoria || '—')}</td>
           <td class="valor-oculto" style="color:var(--red);font-weight:700">− ${money(f.valor)}</td>
           <td style="text-align:right">${f.auto ? '' : `<button class="mini no" onclick="event.stopPropagation();delFin('${f.id}')">excluir</button>`}</td>
