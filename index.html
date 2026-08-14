@@ -462,6 +462,36 @@
   }
   .stat .st-num.valor-oculto::after { justify-content: flex-start; }
 
+  /* ── cascata: mostra o caminho do dinheiro, não só o tamanho de cada parte ── */
+  .cascata { display: flex; align-items: flex-end; gap: 6px; margin-top: 6px; }
+  .cs-col { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: center; gap: 5px; }
+  .cs-area { position: relative; width: 100%; height: 132px; }
+  .cs-zero { position: absolute; left: 0; right: 0; border-top: 1px dashed var(--border-light); }
+  .cs-bar { position: absolute; left: 12%; right: 12%; border-radius: 4px; min-height: 2px; transition: height .5s ease, bottom .5s ease; }
+  .cs-bar.pos { background: var(--green); }
+  .cs-bar.neg { background: var(--red); }
+  .cs-bar.tot { background: var(--accent); }
+  .cs-lig { position: absolute; left: 12%; right: 12%; border-top: 1px dotted var(--text-mute); opacity: .5; }
+  .cs-val { font-size: .62rem; font-weight: 700; text-align: center; line-height: 1.2; white-space: nowrap; }
+  .cs-lbl { font-size: .58rem; color: var(--text-dim); text-align: center; line-height: 1.2;
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  @media (max-width: 420px) { .cs-area { height: 108px; } .cs-val { font-size: .56rem; } .cs-lbl { font-size: .53rem; } }
+
+  /* ── categoria que abre pra mostrar os lançamentos ── */
+  .cat-linha { cursor: pointer; border-radius: 8px; padding: 6px 6px 2px; margin: 0 -6px 8px; transition: background .15s; }
+  .cat-linha:hover { background: var(--surface-2); }
+  .cat-linha.aberta { background: var(--surface-2); }
+  .cat-seta { display: inline-block; font-size: .6rem; color: var(--text-mute); transition: transform .2s; margin-right: 4px; }
+  .cat-linha.aberta .cat-seta { transform: rotate(90deg); }
+  .cat-itens { margin: 2px 0 10px; padding: 8px 10px; background: var(--surface-2); border-radius: 10px;
+    border-left: 3px solid var(--red); }
+  .cat-itens .ci { display: flex; align-items: baseline; justify-content: space-between; gap: 10px;
+    padding: 5px 0; font-size: .78rem; border-bottom: 1px solid var(--border); }
+  .cat-itens .ci:last-child { border-bottom: none; }
+  .cat-itens .ci-d { color: var(--text-dim); font-size: .7rem; flex-shrink: 0; }
+  .cat-itens .ci-n { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .cat-itens .ci-v { font-weight: 700; white-space: nowrap; }
+
   /* ── folga e almoço ── */
   .dia-folga { display: inline-flex; align-items: center; gap: 6px; cursor: pointer;
     background: var(--surface-2); border: 1px solid var(--border); border-radius: 99px;
@@ -2596,11 +2626,13 @@ function seletorMes() {
   </div>`;
 }
 function renderFinanceiro() {
-  const comMes = ['mov', 'custos', 'com'].includes(finTab);
+  const comMes = ['mov', 'barbearia', 'pessoal', 'custos', 'com'].includes(finTab);
   return `
   <div class="dataview-bar">
     <div class="modal-tabs" style="margin:0;border:none">
-      <button class="mtab ${finTab === 'mov' ? 'active' : ''}" onclick="setFinTab('mov')">Entradas e saídas</button>
+      <button class="mtab ${finTab === 'mov' ? 'active' : ''}" onclick="setFinTab('mov')">Visão geral</button>
+      <button class="mtab ${finTab === 'barbearia' ? 'active' : ''}" onclick="setFinTab('barbearia')">Barbearia</button>
+      <button class="mtab ${finTab === 'pessoal' ? 'active' : ''}" onclick="setFinTab('pessoal')">Pessoal</button>
       <button class="mtab ${finTab === 'custos' ? 'active' : ''}" onclick="setFinTab('custos')">Custos fixos</button>
       <button class="mtab ${finTab === 'metas' ? 'active' : ''}" onclick="setFinTab('metas')">Metas</button>
       <button class="mtab ${finTab === 'proj' ? 'active' : ''}" onclick="setFinTab('proj')">Projeção do mês</button>
@@ -2610,6 +2642,8 @@ function renderFinanceiro() {
   </div>
   ${comMes ? seletorMes() : ''}
   ${finTab === 'mov' ? finMov()
+    : finTab === 'barbearia' ? finAnaliseEscopo('barbearia')
+    : finTab === 'pessoal' ? finAnaliseEscopo('pessoal')
     : finTab === 'custos' ? renderCustosFixos()
     : finTab === 'metas' ? finMetas()
     : finTab === 'proj' ? finProj()
@@ -2656,53 +2690,120 @@ const leCategoria = (idSelect, idOutra) => {
   return v === '__outra' ? (val(idOutra).trim() || 'Outros') : v;
 };
 
-/* ── Gráfico de despesas: onde o dinheiro está indo, por categoria ──
-   Alterna entre as contas da barbearia e as do bolso do Tavares. */
-let despEscopo = 'barbearia';
 let finFiltro = 'tudo';        // filtro da lista de lançamentos: tudo | barbearia | pessoal
-function setDespEscopo(e) { despEscopo = e; render(); }
 function setFinFiltro(v) { finFiltro = v; render(); }
-function graficoDespesas(mk) {
-  const doMes = db.financeiro.filter(f => f.tipo === 'despesa' && monthKey(f.data) === mk);
-  const daVez = doMes.filter(f => (despEscopo === 'pessoal') === ehPessoal(f));
-  const outro = doMes.filter(f => (despEscopo === 'pessoal') !== ehPessoal(f));
-  const totalVez = somaBy(daVez, f => f.valor), totalOutro = somaBy(outro, f => f.valor);
+/* categorias abertas no gráfico; chave "escopo|categoria" pra os dois lados não se confundirem */
+let catAbertas = {};
+function toggleCat(chave) { catAbertas[chave] = !catAbertas[chave]; render(); }
 
-  const porCat = {};
-  daVez.forEach(f => { const k = f.categoria || 'Geral'; porCat[k] = (porCat[k] || 0) + f.valor; });
-  const barras = Object.entries(porCat).map(([k, v]) => ({ k, v })).sort((a, b) => b.v - a.v);
-  const maior = Math.max(1, ...barras.map(b => b.v));
-  const ehBarbearia = despEscopo === 'barbearia';
+const despesasDoMes = (mk, escopo) => db.financeiro.filter(f =>
+  f.tipo === 'despesa' && monthKey(f.data) === mk && (ehPessoal(f) ? 'pessoal' : 'barbearia') === escopo);
+function porCategoria(lista) {
+  const m = {};
+  lista.forEach(f => { const k = f.categoria || 'Outros'; (m[k] = m[k] || []).push(f); });
+  return Object.entries(m)
+    .map(([k, itens]) => ({ k, itens, v: somaBy(itens, f => f.valor) }))
+    .sort((a, b) => b.v - a.v);
+}
 
-  const historia = !barras.length
-    ? `Nenhuma despesa ${ehBarbearia ? 'da barbearia' : 'pessoal'} lançada em ${fmtMonth(mk)}.`
-    : `${ehBarbearia ? 'A barbearia' : 'O Tavares'} gastou <b class="valor-oculto">${money(totalVez)}</b> em ${fmtMonth(mk)}. ` +
-      `O maior peso é <b>${esc(barras[0].k)}</b>, com <b class="valor-oculto">${money(barras[0].v)}</b>` +
-      (totalVez > 0 ? ` (${pct(barras[0].v, totalVez)}% do total)` : '') + '.';
+/* ── Bloco "para onde vai o dinheiro": barras por categoria que abrem
+   e mostram os lançamentos que formam aquele valor ── */
+function blocoDespesas(mk, escopo, opts) {
+  opts = opts || {};
+  const lista = despesasDoMes(mk, escopo);
+  const total = somaBy(lista, f => f.valor);
+  const cats = porCategoria(lista);
+  const maior = Math.max(1, ...cats.map(c => c.v));
+  const ehBarb = escopo === 'barbearia';
+  const quem = ehBarb ? 'A barbearia' : 'O Tavares';
+
+  /* comparação com o mês anterior dá o "está piorando ou melhorando?" */
+  const [y, mo] = mk.split('-').map(Number);
+  const mkAnt = mo === 1 ? `${y - 1}-12` : `${y}-${pad2(mo - 1)}`;
+  const totalAnt = somaBy(despesasDoMes(mkAnt, escopo), f => f.valor);
+  const variacao = totalAnt > 0 ? Math.round((total - totalAnt) / totalAnt * 100) : null;
+
+  const historia = !cats.length
+    ? `Nenhuma despesa ${ehBarb ? 'da barbearia' : 'pessoal'} lançada em ${fmtMonth(mk)}.`
+    : `${quem} gastou <b class="valor-oculto">${money(total)}</b>. ` +
+      `O maior peso é <b>${esc(cats[0].k)}</b>, com ${pct(cats[0].v, total)}% do total.` +
+      (variacao !== null
+        ? variacao === 0 ? ' Igual ao mês passado.'
+        : variacao > 0 ? ` <b style="color:var(--red)">${variacao}% a mais</b> que ${fmtMonth(mkAnt).split('/')[0]}.`
+        : ` <b style="color:var(--green)">${Math.abs(variacao)}% a menos</b> que ${fmtMonth(mkAnt).split('/')[0]}.`
+        : '');
 
   return `
-  <div class="analise" style="margin-top:16px">
-    <div class="an-tit" style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap">
-      <span>Para onde vai o dinheiro</span>
-      <span class="periodo-seg">
-        <button class="${ehBarbearia ? 'active' : ''}" onclick="setDespEscopo('barbearia')">Barbearia</button>
-        <button class="${!ehBarbearia ? 'active' : ''}" onclick="setDespEscopo('pessoal')">Tavares</button>
-      </span>
-    </div>
-    <div class="an-hist">${historia}</div>
-    ${barras.length ? barras.map(b => `
-      <div class="barra">
+  <div class="analise">
+    <div class="an-tit">${opts.titulo || (ehBarb ? '🏪 Despesas da barbearia' : '👤 Despesas do Tavares')}</div>
+    <div class="an-hist">${historia}${cats.length ? ' Toque numa categoria para ver os lançamentos.' : ''}</div>
+    ${cats.length ? cats.map(c => {
+      const chave = `${escopo}|${c.k}`;
+      const aberta = !!catAbertas[chave];
+      return `
+      <div class="cat-linha${aberta ? ' aberta' : ''}" onclick="toggleCat('${esc(chave).replace(/'/g, "\\'")}')">
         <div class="ba-top">
-          <span class="ba-rot">${esc(b.k)}</span>
-          <span class="ba-val valor-oculto">${money(b.v)}</span>
+          <span class="ba-rot"><span class="cat-seta">▶</span>${esc(c.k)}
+            <span style="color:var(--text-mute);font-weight:400">· ${c.itens.length}</span></span>
+          <span class="ba-val valor-oculto">${money(c.v)}</span>
         </div>
-        <div class="ba-track"><div class="ba-fill" style="width:${Math.max(4, pct(b.v, maior))}%;background:var(--red)"></div></div>
-      </div>`).join('') : `<div class="empty-soft">Sem despesas ${ehBarbearia ? 'da barbearia' : 'pessoais'} neste mês.</div>`}
-    ${totalOutro > 0 ? `<div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--border);font-size:.8rem;color:var(--text-dim)">
-      ${ehBarbearia ? 'Fora isso, o Tavares' : 'Fora isso, a barbearia'} gastou
-      <b class="valor-oculto">${money(totalOutro)}</b> —
-      <button class="mini" style="margin-left:4px" onclick="setDespEscopo('${ehBarbearia ? 'pessoal' : 'barbearia'}')">ver</button>
-    </div>` : ''}
+        <div class="ba-track"><div class="ba-fill" style="width:${Math.max(4, pct(c.v, maior))}%;background:var(--red)"></div></div>
+      </div>
+      ${aberta ? `<div class="cat-itens">
+        ${c.itens.slice().sort((a, b) => a.data.localeCompare(b.data)).map(f => `
+          <div class="ci">
+            <span class="ci-d">${fmtDate(f.data)}</span>
+            <span class="ci-n">${esc(f.descricao)}${f.auto ? ' <span class="tag brass">auto</span>' : ''}</span>
+            <span class="ci-v valor-oculto">${money(f.valor)}</span>
+          </div>`).join('')}
+      </div>` : ''}`;
+    }).join('') : `<div class="empty-soft">Sem despesas ${ehBarb ? 'da barbearia' : 'pessoais'} neste mês.</div>`}
+  </div>`;
+}
+
+/* ── Cascata: o caminho do dinheiro no mês ──
+   Colunas lado a lado mostram tamanho; a cascata mostra o que entrou,
+   o que cada lado consumiu e o que sobrou no fim. */
+function graficoCascata(m) {
+  const R = m.receita, Db = m.despesaBarbearia, Dp = m.despesaPessoal;
+  const lucro = R - Db, sobra = lucro - Dp;
+  const passos = [
+    { lbl: 'Receitas', de: 0, ate: R, tipo: 'pos' },
+    { lbl: 'Barbearia', de: R, ate: lucro, tipo: 'neg', valor: -Db },
+    { lbl: 'Lucro', de: 0, ate: lucro, tipo: 'tot', total: true },
+    { lbl: 'Pessoal', de: lucro, ate: sobra, tipo: 'neg', valor: -Dp },
+    { lbl: 'Sobra', de: 0, ate: sobra, tipo: sobra < 0 ? 'neg' : 'pos', total: true }
+  ];
+  const todos = passos.flatMap(p => [p.de, p.ate]).concat(0);
+  const topo = Math.max(...todos), fundo = Math.min(...todos);
+  const escala = (topo - fundo) || 1;
+  const posY = v => ((v - fundo) / escala) * 100;    // % a partir da base
+
+  const historia = R === 0
+    ? 'Sem receita lançada neste mês ainda.'
+    : sobra >= 0
+      ? `De <b class="valor-oculto">${money(R)}</b> que entraram, a barbearia consumiu ${pct(Db, R)}% e as contas do Tavares ${pct(Dp, R)}%. Sobraram <b class="valor-oculto" style="color:var(--green)">${money(sobra)}</b>.`
+      : `De <b class="valor-oculto">${money(R)}</b> que entraram, sobrou <b class="valor-oculto" style="color:var(--green)">${money(lucro)}</b> depois da barbearia — mas as contas do Tavares (<b class="valor-oculto">${money(Dp)}</b>) passaram disso, deixando <b class="valor-oculto" style="color:var(--red)">${money(sobra)}</b>.`;
+
+  return `
+  <div class="analise">
+    <div class="an-tit">O caminho do dinheiro</div>
+    <div class="an-hist">${historia}</div>
+    <div class="cascata">
+      ${passos.map(p => {
+        const alto = Math.abs(posY(p.ate) - posY(p.de));
+        const base = Math.min(posY(p.de), posY(p.ate));
+        const mostra = p.total ? p.ate : (p.valor !== undefined ? p.valor : p.ate);
+        return `<div class="cs-col">
+          <div class="cs-area">
+            <div class="cs-zero" style="bottom:${posY(0)}%"></div>
+            <div class="cs-bar ${p.tipo}" style="bottom:${base}%;height:${Math.max(1.5, alto)}%"></div>
+          </div>
+          <div class="cs-val valor-oculto" style="color:var(--${p.tipo === 'neg' ? 'red' : p.tipo === 'pos' ? 'green' : 'text'})">${moneyShort(mostra)}</div>
+          <div class="cs-lbl">${p.total ? '= ' : ''}${p.lbl}</div>
+        </div>`;
+      }).join('')}
+    </div>
   </div>`;
 }
 
@@ -2735,22 +2836,31 @@ function finMov() {
         : stat(ICO.hand, 'Comissões', money(m.comissoes), 'sobre concluídos', 'valor', 'neg'))}
   </div>
   <div class="p-row2">
-    <div class="p-block" style="grid-column:1/-1">
-      <span class="pb-label">Receitas por forma de pagamento</span>
+    <div class="analise">
+      <div class="an-tit">Como o cliente pagou</div>
+      <div class="an-hist">${Object.keys(porForma).length
+        ? `${(() => { const top = Object.entries(porForma).sort((a, b) => b[1] - a[1])[0];
+             return `<b>${PAG_LABEL[top[0]] || top[0]}</b> é a forma mais usada, com ${pct(top[1], m.receita)}% do que entrou.`; })()}`
+        : 'Sem receitas no mês.'}</div>
       ${Object.keys(porForma).length ? Object.entries(porForma).sort((a, b) => b[1] - a[1]).map(([k, v]) => `
-        <div class="st-row">
-          <div class="st-name">${PAG_LABEL[k] || k}</div>
-          <div class="st-track"><div class="st-fill" style="width:${pct(v, maxF)}%"></div></div>
-          <div class="st-val valor-oculto" style="min-width:80px">${money(v)}</div>
+        <div class="barra">
+          <div class="ba-top"><span class="ba-rot">${PAG_LABEL[k] || k}</span>
+            <span class="ba-val valor-oculto">${money(v)}</span></div>
+          <div class="ba-track"><div class="ba-fill" style="width:${Math.max(4, pct(v, maxF))}%;background:var(--green)"></div></div>
         </div>`).join('') : `<div class="empty-soft">Sem receitas no mês.</div>`}
-      ${taxasDoMes > 0 ? `<div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--border);font-size:.82rem;color:var(--text-dim);line-height:1.5">
-        A maquineta ficou com <b class="valor-oculto" style="color:var(--red)">${money(taxasDoMes)}</b> em taxas neste mês.
-        Do que entrou no cartão, sobrou <b class="valor-oculto" style="color:var(--green)">${money(recebidoCartao - taxasDoMes)}</b> líquido.
+      ${taxasDoMes > 0 ? `<div style="margin-top:12px;padding-top:10px;border-top:1px solid var(--border);font-size:.78rem;color:var(--text-dim);line-height:1.5">
+        A maquineta ficou com <b class="valor-oculto" style="color:var(--red)">${money(taxasDoMes)}</b>.
+        Do cartão, sobrou <b class="valor-oculto" style="color:var(--green)">${money(recebidoCartao - taxasDoMes)}</b> líquido.
       </div>` : ''}
     </div>
+    ${graficoCascata(m)}
   </div>
 
-  ${graficoDespesas(m.mk)}
+  <div class="p-row2">
+    ${blocoDespesas(m.mk, 'barbearia')}
+    ${blocoDespesas(m.mk, 'pessoal')}
+  </div>
+
   ${custosPendentes(m.mk).length ? `<div class="p-block" style="margin-top:16px;border-color:var(--accent)">
     <span class="pb-label">Custos fixos de ${fmtMonth(m.mk)}</span>
     <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
@@ -2788,6 +2898,99 @@ function finMov() {
             ${f.tipo === 'receita' ? '+' : '−'} ${money(f.valor)}</td>
           <td style="text-align:right">${f.auto ? '' : `<button class="mini no" onclick="event.stopPropagation();delFin('${f.id}')">excluir</button>`}</td>
         </tr>`).join('') : `<tr><td colspan="6"><div class="empty-soft">Nenhum lançamento neste mês.</div></td></tr>`}
+      </tbody>
+    </table></div>
+  </div>`;
+}
+
+/* ── Aba dedicada a um lado só: barbearia ou pessoal ──
+   Aqui cabe o que não cabe na visão geral: evolução mês a mês,
+   peso de cada categoria e a lista completa daquele lado. */
+function finAnaliseEscopo(escopo) {
+  const mk = finMes;
+  const ehBarb = escopo === 'barbearia';
+  const m = metrics(mk);
+  const lista = despesasDoMes(mk, escopo);
+  const total = somaBy(lista, f => f.valor);
+  const cats = porCategoria(lista);
+  const fixos = (db.custosFixos || []).filter(c => c.ativo && (c.escopo === 'pessoal') === !ehBarb);
+  const totalFixos = somaBy(fixos, c => c.valor);
+  const variaveis = Math.max(0, total - somaBy(lista.filter(f => f.custoFixoId), f => f.valor));
+
+  /* últimos 6 meses pra ver tendência */
+  const meses = [];
+  for (let i = 5; i >= 0; i--) {
+    const [y, mo] = mk.split('-').map(Number);
+    const d = new Date(y, mo - 1 - i, 1);
+    const k = `${d.getFullYear()}-${pad2(d.getMonth() + 1)}`;
+    meses.push({ k, v: somaBy(despesasDoMes(k, escopo), f => f.valor) });
+  }
+  const maxMes = Math.max(1, ...meses.map(x => x.v));
+  const comValor = meses.filter(x => x.v > 0);
+  const media = comValor.length ? somaBy(comValor, x => x.v) / comValor.length : 0;
+
+  const historia = !total
+    ? `Nada lançado em ${fmtMonth(mk)}.`
+    : ehBarb
+      ? `A barbearia gastou <b class="valor-oculto">${money(total)}</b> em ${fmtMonth(mk)}, sendo <b class="valor-oculto">${money(totalFixos)}</b> de contas fixas. ` +
+        (m.receita > 0 ? `Isso é <b>${pct(total, m.receita)}%</b> de tudo que ela faturou.` : '')
+      : `O Tavares gastou <b class="valor-oculto">${money(total)}</b> em ${fmtMonth(mk)}. ` +
+        (m.lucro > 0
+          ? total > m.lucro
+            ? `A barbearia gerou <b class="valor-oculto">${money(m.lucro)}</b> de lucro — <b style="color:var(--red)">faltaram ${money(total - m.lucro)}</b> para cobrir.`
+            : `A barbearia gerou <b class="valor-oculto">${money(m.lucro)}</b>, então coube com <b class="valor-oculto" style="color:var(--green)">${money(m.lucro - total)}</b> de folga.`
+          : 'A barbearia não gerou lucro neste mês para cobrir.');
+
+  return `
+  <div class="analise" style="margin-bottom:16px">
+    <div class="an-tit">${ehBarb ? '🏪 Contas da barbearia' : '👤 Contas do Tavares'}</div>
+    <div class="an-hist">${historia}</div>
+    <div class="stat-grid">
+      ${stat(ICO.box, 'Total do mês', money(total), `${lista.length} lançamento(s)`, 'valor', 'neg')}
+      ${stat(ICO.clock, 'Contas fixas', money(totalFixos), `${fixos.length} conta(s) cadastrada(s)`, 'valor', 'neg')}
+      ${stat(ICO.money, 'Variável', money(variaveis), 'fora as contas fixas', 'valor', 'neg')}
+      ${ehBarb
+        ? stat(ICO.ticket, 'Peso no faturamento', m.receita > 0 ? `${pct(total, m.receita)}%` : '—', 'do que a barbearia fatura', '', total > m.receita * 0.7 ? 'neg' : '')
+        : stat(ICO.hand, 'Coberto pelo lucro', m.lucro > 0 ? `${Math.min(999, pct(total, m.lucro))}%` : '—', 'do lucro da barbearia', '', total > m.lucro ? 'neg' : 'pos')}
+    </div>
+  </div>
+
+  <div class="p-row2">
+    ${blocoDespesas(mk, escopo, { titulo: 'Por categoria' })}
+    <div class="analise">
+      <div class="an-tit">Últimos 6 meses</div>
+      <div class="an-hist">${comValor.length > 1
+        ? `Média de <b class="valor-oculto">${money(media)}</b> por mês. ` +
+          (total > media * 1.1 ? `Este mês está <b style="color:var(--red)">acima da média</b>.`
+           : total < media * 0.9 && total > 0 ? `Este mês está <b style="color:var(--green)">abaixo da média</b>.`
+           : 'Este mês está na média.')
+        : 'Ainda não há meses suficientes para comparar.'}</div>
+      ${meses.map(x => `
+        <div class="barra ${x.k === mk ? 'destaque' : ''}${x.v ? '' : ' vazio'}" style="cursor:pointer" onclick="setFinMes('${x.k}')">
+          <div class="ba-top">
+            <span class="ba-rot" style="text-transform:capitalize">${MES_LONGO[Number(x.k.slice(5)) - 1]}${x.k === mk ? ' · aberto' : ''}</span>
+            <span class="ba-val valor-oculto">${x.v ? money(x.v) : '—'}</span>
+          </div>
+          <div class="ba-track"><div class="ba-fill" style="width:${x.v ? Math.max(4, pct(x.v, maxMes)) : 2}%;background:var(--red)"></div></div>
+        </div>`).join('')}
+    </div>
+  </div>
+
+  <div class="tbl-wrap" style="margin-top:16px">
+    <div class="tbl-header">
+      <div class="tbl-title">Lançamentos de ${fmtMonth(mk)}</div>
+      <button class="btn" onclick="openFinForm()">+ Novo lançamento</button>
+    </div>
+    <div class="tbl-scroll"><table>
+      <thead><tr><th>Data</th><th>Descrição</th><th>Categoria</th><th>Valor</th><th></th></tr></thead>
+      <tbody>${lista.length ? lista.slice().sort((a, b) => b.data.localeCompare(a.data)).map(f => `
+        <tr onclick="${f.auto ? `toast('Lançamento gerado automaticamente pelo atendimento.','🔒')` : `openFinForm('${f.id}')`}">
+          <td>${fmtDate(f.data)}</td>
+          <td><b>${esc(f.descricao)}</b>${f.auto ? ' <span class="tag brass">auto</span>' : ''}</td>
+          <td>${esc(f.categoria || '—')}</td>
+          <td class="valor-oculto" style="color:var(--red);font-weight:700">− ${money(f.valor)}</td>
+          <td style="text-align:right">${f.auto ? '' : `<button class="mini no" onclick="event.stopPropagation();delFin('${f.id}')">excluir</button>`}</td>
+        </tr>`).join('') : `<tr><td colspan="5"><div class="empty-soft">Nenhuma despesa ${ehBarb ? 'da barbearia' : 'pessoal'} em ${fmtMonth(mk)}.</div></td></tr>`}
       </tbody>
     </table></div>
   </div>`;
