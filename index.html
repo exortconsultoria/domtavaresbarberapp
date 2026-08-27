@@ -581,6 +581,18 @@
     border: 1px solid rgba(124,144,99,.4); padding: 8px 14px; border-radius: 99px; font-size: .78rem;
     font-weight: 700; text-decoration: none; cursor: pointer; }
   .wa-btn:hover { filter: brightness(1.15); }
+  .wa-glifo { display: inline-flex; }
+  .wa-glifo svg { width: 15px; height: 15px; display: block; }
+  /* botão redondo de confirmação, na agenda do dia e na lista da semana */
+  .wa-ico { flex: 0 0 auto; width: 34px; height: 34px; border-radius: 50%;
+    display: inline-flex; align-items: center; justify-content: center;
+    background: var(--green-soft); color: var(--green-bright);
+    border: 1px solid rgba(124,144,99,.4); cursor: pointer; text-decoration: none; }
+  .wa-ico svg { width: 17px; height: 17px; display: block; }
+  .wa-ico:hover { filter: brightness(1.12); }
+  /* já perguntou hoje: fica discreto, mas continua clicável para insistir */
+  .wa-ico.enviado { background: transparent; color: var(--text-mute); border-color: var(--border-light); }
+  .li > .wa-ico { margin-left: 10px; }
 
   /* FAB + toast */
   .fab-stack { position: fixed; right: 26px; bottom: 26px; display: flex; gap: 14px; z-index: 90; transition: transform .28s ease; }
@@ -674,6 +686,8 @@
     .dw-foot .btn { width: 100%; min-width: 0; }
     .det-grid { grid-template-columns: 1fr; }
     .mini { padding: 8px 13px; font-size: .74rem; }
+    .wa-ico { width: 40px; height: 40px; }
+    .wa-ico svg { width: 19px; height: 19px; }
   }
 </style>
 </head>
@@ -866,11 +880,44 @@ function waLink(tel, msg) {
   const full = d.length <= 11 ? '55' + d : d;
   return `https://wa.me/${full}?text=${encodeURIComponent(msg || '')}`;
 }
+const SVG_WA = '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M17.5 14.4c-.3-.15-1.75-.86-2.02-.96-.27-.1-.47-.15-.67.15-.2.3-.77.96-.95 1.16-.17.2-.35.22-.65.07-.3-.15-1.25-.46-2.39-1.47-.88-.79-1.48-1.76-1.65-2.06-.17-.3-.02-.46.13-.61.13-.13.3-.35.45-.52.15-.17.2-.3.3-.5.1-.2.05-.37-.02-.52-.08-.15-.67-1.6-.92-2.2-.24-.58-.49-.5-.67-.51h-.57c-.2 0-.52.07-.79.37-.27.3-1.04 1.01-1.04 2.47 0 1.45 1.07 2.86 1.22 3.06.15.2 2.1 3.2 5.08 4.49.71.3 1.26.49 1.69.63.71.22 1.36.19 1.87.12.57-.09 1.75-.71 2-1.4.25-.69.25-1.28.17-1.4-.07-.13-.27-.2-.57-.35zM12 2C6.48 2 2 6.48 2 12c0 1.77.46 3.43 1.27 4.87L2 22l5.25-1.24A9.94 9.94 0 0 0 12 22c5.52 0 10-4.48 10-10S17.52 2 12 2z"/></svg>';
 function waBtn(tel, msg, label) {
   if (!onlyDigits(tel)) return '';
   return `<a class="wa-btn" href="${waLink(tel, msg)}" target="_blank" rel="noopener">
-    <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M17.5 14.4c-.3-.15-1.75-.86-2.02-.96-.27-.1-.47-.15-.67.15-.2.3-.77.96-.95 1.16-.17.2-.35.22-.65.07-.3-.15-1.25-.46-2.39-1.47-.88-.79-1.48-1.76-1.65-2.06-.17-.3-.02-.46.13-.61.13-.13.3-.35.45-.52.15-.17.2-.3.3-.5.1-.2.05-.37-.02-.52-.08-.15-.67-1.6-.92-2.2-.24-.58-.49-.5-.67-.51h-.57c-.2 0-.52.07-.79.37-.27.3-1.04 1.01-1.04 2.470 0 1.45 1.07 2.86 1.22 3.06.15.2 2.1 3.2 5.08 4.49.71.3 1.26.49 1.69.63.71.22 1.36.19 1.87.12.57-.09 1.75-.71 2-1.4.25-.69.25-1.28.17-1.4-.07-.13-.27-.2-.57-.35zM12 2C6.48 2 2 6.48 2 12c0 1.77.46 3.43 1.27 4.87L2 22l5.25-1.24A9.94 9.94 0 0 0 12 22c5.52 0 10-4.48 10-10S17.52 2 12 2z"/></svg>
+    <span class="wa-glifo">${SVG_WA}</span>
     ${esc(label || 'WhatsApp')}</a>`;
+}
+
+/* ─────────── confirmação de horário pelo WhatsApp ───────────
+   Um único texto para o app inteiro: agenda do dia, lista da semana e
+   detalhe do atendimento mandam exatamente a mesma mensagem. */
+function msgConfirmacao(a) {
+  const c = getCli(a.clienteId) || {};
+  const dias = Math.round((parseISO(a.data) - parseISO(todayISO())) / 86400000);
+  const quando = dias === 0 ? `hoje (${fmtDate(a.data)})`
+    : dias === 1 ? `amanhã (${fmtDate(a.data)})`
+    : `${diaSemanaLongo(a.data).split(' ')[0].toLowerCase()}, ${fmtDate(a.data)}`;
+  const srv = nomesServicosDe(a);
+  return `Olá, ${firstName(c.nome)}! Aqui é da ${nomeBarbearia()}.\n\n`
+    + `Você tem horário marcado para ${quando} às ${a.hora}${srv ? ` — ${srv}` : ''}.\n\n`
+    + `Consegue vir? Se precisar remarcar, é só me avisar por aqui que eu ajeito. 💈`;
+}
+/* botão redondo só com o ícone, para caber na lista sem roubar espaço */
+function waIco(a) {
+  const c = getCli(a.clienteId) || {};
+  if (!onlyDigits(c.tel)) return '';
+  const feito = jaEnviou(a.clienteId, 'confirmar');
+  return `<a class="wa-ico${feito ? ' enviado' : ''}" href="${waLink(c.tel, msgConfirmacao(a))}"
+    target="_blank" rel="noopener" title="${feito ? 'Confirmação já enviada hoje' : 'Perguntar no WhatsApp se ele vem'}"
+    aria-label="Confirmar por WhatsApp"
+    onclick="event.stopPropagation();registrarConfirma('${a.clienteId}')">${SVG_WA}</a>`;
+}
+function registrarConfirma(clienteId) {
+  if (!clienteId || jaEnviou(clienteId, 'confirmar')) return;
+  db.msgLog.push({ id: uid(), clienteId, seg: 'confirmar', data: todayISO() });
+  saveDB();
+  /* redesenha depois, senão o link some antes de o WhatsApp abrir */
+  setTimeout(render, 600);
 }
 let toastT = null;
 function toast(msg, ico) {
@@ -1838,7 +1885,6 @@ function viewHoje(r) {
         const a = item.ag, c = getCli(a.clienteId) || {};
         const feito = a.status === 'concluido';
         const perdido = a.status === 'faltou';
-        const msg = `Olá ${firstName(c.nome)}! Aqui é da ${nomeBarbearia()}. Confirmando seu horário ${ehHoje ? 'hoje' : 'em ' + fmtDate(a.data)} às ${a.hora}. Posso confirmar?`;
         const noAlmoco = bateNoAlmoco(a.profissionalId, a.hora, a.duracaoMin || duracaoDe(a.id));
         return `<div class="tl-item${feito ? ' feito' : ''}${perdido ? ' perdido' : ''}">
           <div class="tl-hora">${a.hora}</div>
@@ -1854,7 +1900,7 @@ function viewHoje(r) {
             ${!feito && !perdido ? `<div class="tc-acoes" onclick="event.stopPropagation()">
               <button class="mini ok" onclick="concluir('${a.id}')">Concluir</button>
               ${a.status === 'agendado' ? `<button class="mini" onclick="setStatus('${a.id}','confirmado')">Confirmar</button>` : ''}
-              ${onlyDigits(c.tel) ? `<a class="mini" href="${waLink(c.tel, msg)}" target="_blank" rel="noopener" style="text-decoration:none">WhatsApp</a>` : ''}
+              ${waIco(a)}
             </div>` : ''}
           </div>
         </div>`;
@@ -1970,6 +2016,7 @@ function listaAgrupada(porDia) {
             <div class="lm">${esc(nomesServicosDe(a))}</div>
           </div>
           <div class="lend valor-oculto">${money(valorDe(a))}</div>
+          ${a.status === 'agendado' || a.status === 'confirmado' ? waIco(a) : ''}
         </div>`).join('')}
     </div>`).join('');
 }
@@ -3755,7 +3802,7 @@ function openApptDetail(id) {
   const itens = servicosDoAgendamento(a.id);
   const duracaoTotal = a.duracaoMin !== undefined ? a.duracaoMin : somaBy(itens, i => (getSrv(i.servicoId) || {}).duracao || 0);
   const taxa = Number(a.taxaMaquineta) || 0;
-  const msg = `Olá ${firstName(c.nome)}! Aqui é da Barbearia Dom Tavares. Seu horário está marcado para ${fmtDateLong(a.data)} às ${a.hora} com ${p.apelido || p.nome}. Confirma pra mim?`;
+  const msg = msgConfirmacao(a);
   const body = `
     <span class="pb-label" style="margin-bottom:8px">Serviços</span>
     <div style="margin-bottom:16px">
@@ -3778,7 +3825,12 @@ function openApptDetail(id) {
       <div class="det-item"><div class="k">Valor líquido</div><div class="v" style="color:var(--green);font-weight:700">${money(valorDe(a) - taxa)}</div></div>` : ''}
     </div>
     ${a.obs ? `<div class="det-item" style="margin-bottom:18px"><div class="k">Observações</div><div class="v" style="font-weight:500;font-size:.84rem">${esc(a.obs)}</div></div>` : ''}
-    ${waBtn(c.tel, msg, 'Falar no WhatsApp')}
+    ${!onlyDigits(c.tel) ? '' : a.status === 'concluido' || a.status === 'cancelado'
+      ? waBtn(c.tel, `Olá, ${firstName(c.nome)}! Aqui é da ${nomeBarbearia()}.`, 'Falar no WhatsApp')
+      : `<a class="wa-btn" href="${waLink(c.tel, msg)}" target="_blank" rel="noopener"
+           onclick="registrarConfirma('${a.clienteId}')">
+           <span class="wa-glifo">${SVG_WA}</span>
+           ${jaEnviou(a.clienteId, 'confirmar') ? 'Perguntar de novo se ele vem' : 'Perguntar se ele vem'}</a>`}
     <div class="det-sep"></div>
     <span class="pb-label" style="display:block;font-size:.66rem;text-transform:uppercase;letter-spacing:1.4px;color:var(--text-mute);font-weight:700;margin-bottom:10px">Mudar status</span>
     <div style="display:flex;gap:8px;flex-wrap:wrap">
