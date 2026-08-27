@@ -1115,12 +1115,41 @@ function agendarSync() {
   syncTimer = setTimeout(sincronizar, 400);   // junta rajadas de saveDB numa só ida
 }
 
+/* Colunas que o banco ainda não tem. Enquanto o SQL não roda, o app não pode
+   PERDER o lançamento — ele grava sem o campo desconhecido e segue.
+   Isso já custou 46 receitas: o app dependia de `pago` antes da coluna existir. */
+const colunasIgnoradas = {};
+const nomeColunaDoErro = err => {
+  const m = /Could not find the '([^']+)' column/.exec(err.message || '');
+  if (m) return m[1];
+  const m2 = /column "?([a-z_]+)"? of relation/.exec(err.message || '');
+  return m2 ? m2[1] : null;
+};
+/* remove das linhas as colunas que já sabemos que o banco não conhece */
+function semColunasIgnoradas(tabela, rows) {
+  const fora = colunasIgnoradas[tabela];
+  if (!fora || !fora.size) return rows;
+  return rows.map(r => { const c = { ...r }; fora.forEach(k => delete c[k]); return c; });
+}
+/* upsert que, ao esbarrar em coluna inexistente, tira a coluna e tenta de novo */
+async function upsertTolerante(tabela, rows) {
+  for (let tentativa = 0; tentativa < 6; tentativa++) {
+    const { error } = await sb.from(tabela).upsert(semColunasIgnoradas(tabela, rows));
+    if (!error) return { ok: true, ignoradas: [...(colunasIgnoradas[tabela] || [])] };
+    const col = error.code === 'PGRST204' || error.code === '42703' ? nomeColunaDoErro(error) : null;
+    if (!col) return { ok: false, error };
+    (colunasIgnoradas[tabela] = colunasIgnoradas[tabela] || new Set()).add(col);
+  }
+  return { ok: false, error: new Error(`${tabela}: colunas demais faltando`) };
+}
+
 /* manda para a nuvem apenas as linhas que mudaram desde o último espelho */
 async function sincronizar() {
   if (!sb || sbStatus !== 'online' || !nuvem) return;
   syncEstado = 'enviando'; updateSyncChip();
   const falhas = [];
   const faltaNoBanco = [];
+  const colunasPuladas = new Set();
   /* tabela/coluna que ainda não existe no banco não pode derrubar o resto da sincronização */
   const ehEstruturaFaltando = err => ['PGRST205', 'PGRST204', '42P01', '42703', '23514'].includes(err.code);
 
@@ -1134,16 +1163,18 @@ async function sincronizar() {
       const apagar = [...antes.keys()].filter(id => !idsAgora.has(id));
 
       if (linhas.length) {
-        const { error } = await sb.from(m.tabela).upsert(linhas.map(m.toRow));
-        if (error) {
+        const res = await upsertTolerante(m.tabela, linhas.map(m.toRow));
+        (res.ignoradas || []).forEach(c => colunasPuladas.add(`${m.tabela}.${c}`));
+        if (!res.ok) {
+          const error = res.error;
           if (!ehEstruturaFaltando(error)) throw error;
           /* uma linha recusada não pode travar a coleção toda: reenvia uma a uma
              para que só a problemática fique de fora */
           let algumaFalhou = null;
           const ok = [];
           for (const o of linhas) {
-            const res = await sb.from(m.tabela).upsert(m.toRow(o));
-            if (res.error) algumaFalhou = res.error; else ok.push(o);
+            const r1 = await upsertTolerante(m.tabela, [m.toRow(o)]);
+            if (!r1.ok) algumaFalhou = r1.error; else ok.push(o);
           }
           if (algumaFalhou) {
             /* marca como sincronizado só o que passou, para tentar o resto depois */
@@ -1174,9 +1205,10 @@ async function sincronizar() {
     if (ehEstruturaFaltando(e)) faltaNoBanco.push('configuracoes'); else falhas.push(`configuracoes: ${e.message || e}`);
   }
 
-  if (faltaNoBanco.length) {
+  if (faltaNoBanco.length || colunasPuladas.size) {
     syncEstado = 'erro';
-    toast(`Falta criar no banco: <b>${esc([...new Set(faltaNoBanco)].join(', '))}</b>.<br><small>Rode o schema.sql atualizado no Supabase. Até lá isso fica salvo só neste aparelho.</small>`, '🗄️');
+    const oQueFalta = [...new Set([...faltaNoBanco, ...colunasPuladas])].join(', ');
+    toast(`Falta criar no banco: <b>${esc(oQueFalta)}</b>.<br><small>Rode o schema.sql atualizado no Supabase. O resto já foi salvo na nuvem.</small>`, '🗄️');
   } else if (falhas.length) {
     syncEstado = 'erro';
     toast(`Não consegui salvar tudo na nuvem: ${esc(falhas[0])}<br><small>Os dados estão salvos neste aparelho.</small>`, '⚠️');
