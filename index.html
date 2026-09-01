@@ -4426,6 +4426,10 @@ const USUARIOS = {
 };
 /* enquanto o usuário não trocar a senha provisória, o app não abre */
 const precisaCriarSenha = u => !(u && u.user_metadata && u.user_metadata.senha_criada);
+/* "Load failed" (Safari), "Failed to fetch" (Chrome) e afins: a requisição nem
+   chegou ao servidor. Não é senha errada — é internet ou o Supabase fora do ar. */
+const ehFalhaDeRede = err => /load failed|failed to fetch|networkerror|network request failed|timeout|conex/i
+  .test(String((err && err.message) || err));
 
 async function fazerLogin(ev) {
   ev.preventDefault();
@@ -4440,10 +4444,25 @@ async function fazerLogin(ev) {
     return false;
   }
   btn.disabled = true; btn.textContent = 'Entrando…';
-  const { data, error } = await sb.auth.signInWithPassword({ email, password });
+  /* A internet (ou o servidor) falhar não é erro de senha. Quando isso acontece
+     o navegador devolve "Load failed" / "Failed to fetch" em inglês — inútil para
+     quem só quer abrir a agenda. Então: tenta sozinho mais duas vezes e, se ainda
+     assim não for, explica em português o que houve. */
+  let data = null, error = null;
+  for (let tentativa = 1; tentativa <= 3; tentativa++) {
+    if (tentativa > 1) {
+      btn.textContent = 'Tentando de novo…';
+      await new Promise(r => setTimeout(r, tentativa === 2 ? 1200 : 3000));
+    }
+    const res = await sb.auth.signInWithPassword({ email, password });
+    data = res.data; error = res.error;
+    if (!error || !ehFalhaDeRede(error)) break;
+  }
   btn.disabled = false; btn.textContent = 'Entrar';
   if (error) {
-    msg.textContent = error.message === 'Invalid login credentials' ? 'Usuário ou senha errados.'
+    msg.textContent = ehFalhaDeRede(error)
+        ? 'Não consegui falar com o servidor. Confira a internet e tente de novo daqui a pouco.'
+      : error.message === 'Invalid login credentials' ? 'Usuário ou senha errados.'
       : error.message === 'Email not confirmed' ? 'Esta conta ainda não foi liberada. Fale com o administrador.'
       : error.message;
     msg.className = 'login-msg err';
