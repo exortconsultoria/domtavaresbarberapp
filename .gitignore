@@ -3,3 +3,7 @@
 
 # Backups exportados pelo app
 dom-tavares-*.json
+
+# servidor e config locais de teste (nao fazem parte do site)
+servidor-local.js
+.claude/

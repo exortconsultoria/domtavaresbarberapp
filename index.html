@@ -207,6 +207,8 @@
   .sync-chip.saving .dot { background: var(--accent); animation: pulse 1s infinite; }
   .sync-chip.erro { border-color: var(--red); color: var(--red); }
   .sync-chip.erro .dot { background: var(--red); box-shadow: none; }
+  /* sem conexão não é "tudo certo": bolinha apagada, não verde */
+  .sync-chip.offline .dot { background: var(--text-mute); box-shadow: none; }
   @keyframes pulse { 50% { opacity: .3; } }
 
   /* filtros no chrome */
@@ -581,6 +583,17 @@
     border: 1px solid rgba(124,144,99,.4); padding: 8px 14px; border-radius: 99px; font-size: .78rem;
     font-weight: 700; text-decoration: none; cursor: pointer; }
   .wa-btn:hover { filter: brightness(1.15); }
+  /* aviso de que o app está rodando com o que estava salvo no aparelho */
+  .barra-offline { display: flex; align-items: center; gap: 10px; padding: 9px 16px;
+    background: var(--amber-soft, rgba(190,140,40,.14)); border-bottom: 1px solid var(--border);
+    font-size: .74rem; line-height: 1.35; }
+  .barra-offline .bo-ico { font-size: .95rem; flex: 0 0 auto; }
+  .barra-offline .bo-txt { flex: 1 1 auto; color: var(--text-dim); min-width: 0; }
+  .barra-offline .bo-txt b { color: var(--text); display: block; font-size: .78rem; }
+  .barra-offline .mini { flex: 0 0 auto; padding: 6px 11px; font-size: .7rem; }
+  @media (max-width: 560px) {
+    .barra-offline { padding: 8px 14px; gap: 8px; }
+  }
   .wa-glifo { display: inline-flex; }
   .wa-glifo svg { width: 15px; height: 15px; display: block; }
   /* botão redondo de confirmação, na agenda do dia e na lista da semana */
@@ -737,6 +750,14 @@
   </aside>
 
   <div class="app-main-col">
+    <div class="barra-offline" id="barraOffline" style="display:none">
+      <span class="bo-ico">📴</span>
+      <div class="bo-txt">
+        <b>Sem conexão com o servidor.</b>
+        <span id="boDetalhe">Você está vendo o que já estava salvo neste aparelho. O que fizer agora sobe sozinho quando a internet voltar.</span>
+      </div>
+      <button class="mini" id="boBtn" onclick="tentarVoltarOnline(true)">Tentar de novo</button>
+    </div>
     <header class="chrome">
       <div class="chrome-title">
         <h1 id="chromeTitle">Visão Geral</h1>
@@ -809,12 +830,18 @@
 const SUPABASE_URL = 'https://ttqflxpsqmkzfrjvjtvp.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InR0cWZseHBzcW1remZyanZqdHZwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODYxNDQyOTUsImV4cCI6MjEwMTcyMDI5NX0.jBNfursbYMc8U6DVQ7Aw93McEM7CwMuWJFTGuDxCk14';
 const sb = window.supabase ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY) : null;
+/* "Load failed" (Safari), "Failed to fetch" (Chrome) e afins: a requisição nem
+   chegou ao servidor. Não é senha errada — é internet ou o Supabase fora do ar. */
+const ehFalhaDeRede = err => /load failed|failed to fetch|networkerror|network request failed|timeout|conex/i
+  .test(String((err && err.message) || err));
 let sbStatus = 'checando';   // 'checando' | 'online' | 'offline'
 async function checarSupabase() {
   if (!sb) { sbStatus = 'offline'; updateSyncChip(); return; }
   try {
-    await sb.from('configuracoes').select('id', { head: true, count: 'exact' });
-    sbStatus = 'online';
+    /* o cliente não lança em falha de rede: devolve { error }. Sem olhar esse
+       error, o app se dava por online com a internet caída. */
+    const { error } = await sb.from('configuracoes').select('id', { head: true, count: 'exact' });
+    sbStatus = error && ehFalhaDeRede(error) ? 'offline' : 'online';
   } catch (e) {
     sbStatus = 'offline';
   }
@@ -1056,6 +1083,7 @@ function updateSyncChip() {
   const chip = document.getElementById('syncChip');
   chip.classList.toggle('saving', syncEstado === 'enviando');
   chip.classList.toggle('erro', syncEstado === 'erro');
+  chip.classList.toggle('offline', sbStatus !== 'online');
   document.getElementById('syncLabel').textContent = txt;
 }
 
@@ -1153,6 +1181,30 @@ const configFromRow = r => ({ nomeUsuario: r.nome_usuario, nomeBarbearia: r.nome
     ? CONFIG_PADRAO.projecaoPadrao : Number(r.projecao_padrao) });
 
 let nuvem = null;              // espelho do que já está no Supabase
+/* O espelho também vai pro localStorage. Sem ele, ao reconectar o app não teria
+   como saber o que foi feito offline — e `conectarNuvem()` substituiria tudo
+   pelos dados da nuvem, apagando o trabalho do dia. */
+const NUVEM_KEY = 'domtavares_nuvem';
+let espelhoSalvo = null;
+const guardarEspelho = () => { try { Store.set(NUVEM_KEY, JSON.stringify(nuvem)); } catch (e) { /* cota cheia: só perde o atalho */ } };
+function carregarEspelho() {
+  try { const r = Store.get(NUVEM_KEY); espelhoSalvo = r ? JSON.parse(r) : null; }
+  catch (e) { espelhoSalvo = null; }
+}
+/* quantas linhas mudaram neste aparelho desde a última vez que falamos com a nuvem */
+function pendenciasOffline() {
+  if (!espelhoSalvo) return 0;
+  let n = 0;
+  for (const chave of COLECOES) {
+    const m = MAP[chave];
+    const antes = new Map((espelhoSalvo[chave] || []).map(o => [o.id, JSON.stringify(m.toRow(o))]));
+    const agora = db[chave] || [];
+    n += agora.filter(o => antes.get(o.id) !== JSON.stringify(m.toRow(o))).length;
+    const ids = new Set(agora.map(o => o.id));
+    n += [...antes.keys()].filter(id => !ids.has(id)).length;
+  }
+  return n;
+}
 let syncEstado = 'ok';         // 'ok' | 'enviando' | 'erro'
 let syncTimer = null;
 
@@ -1252,6 +1304,7 @@ async function sincronizar() {
     if (ehEstruturaFaltando(e)) faltaNoBanco.push('configuracoes'); else falhas.push(`configuracoes: ${e.message || e}`);
   }
 
+  guardarEspelho();
   if (faltaNoBanco.length || colunasPuladas.size) {
     syncEstado = 'erro';
     const oQueFalta = [...new Set([...faltaNoBanco, ...colunasPuladas])].join(', ');
@@ -1306,6 +1359,17 @@ function migrarIdsParaUUID() {
 async function conectarNuvem() {
   if (!sb || sbStatus !== 'online') return;
   try {
+    /* O que foi feito offline sobe ANTES de baixar. Invertendo a ordem, a nuvem
+       — que não conhece essas linhas — sobrescreveria o trabalho do dia. */
+    const pendentes = pendenciasOffline();
+    if (pendentes) {
+      nuvem = espelhoSalvo;
+      await sincronizar();
+      if (syncEstado === 'ok') {
+        espelhoSalvo = null;
+        toast(`${pendentes} alteração(ões) feita(s) sem internet foram para a nuvem.`, '☁️');
+      }
+    }
     const remoto = await baixarDaNuvem();
     const temNaNuvem = COLECOES.some(k => (remoto[k] || []).length);
     const temLocal = COLECOES.some(k => (db[k] || []).length);
@@ -1328,10 +1392,12 @@ async function conectarNuvem() {
       nuvem = { config: {} }; COLECOES.forEach(k => (nuvem[k] = []));
       await sincronizar();
     }
+    guardarEspelho();
   } catch (e) {
     sbStatus = 'offline';
     toast(`Não consegui ler a nuvem: ${esc(e.message)}<br><small>Trabalhando só neste aparelho.</small>`, '📴');
   }
+  atualizarBarraOffline();
   updateSyncChip();
   render();
 }
@@ -4426,10 +4492,7 @@ const USUARIOS = {
 };
 /* enquanto o usuário não trocar a senha provisória, o app não abre */
 const precisaCriarSenha = u => !(u && u.user_metadata && u.user_metadata.senha_criada);
-/* "Load failed" (Safari), "Failed to fetch" (Chrome) e afins: a requisição nem
-   chegou ao servidor. Não é senha errada — é internet ou o Supabase fora do ar. */
-const ehFalhaDeRede = err => /load failed|failed to fetch|networkerror|network request failed|timeout|conex/i
-  .test(String((err && err.message) || err));
+let ultimoUsuario = '';        // quem entrou por último neste aparelho
 
 async function fazerLogin(ev) {
   ev.preventDefault();
@@ -4460,6 +4523,14 @@ async function fazerLogin(ev) {
   }
   btn.disabled = false; btn.textContent = 'Entrar';
   if (error) {
+    /* servidor fora do ar não pode trancar o dono para fora da própria agenda:
+       se este aparelho já entrou com esse usuário, abre com os dados salvos */
+    if (ehFalhaDeRede(error) && acessoOfflinePermitido(usuario)) {
+      ultimoUsuario = usuario;
+      entrarNoApp(true);
+      toast('Sem conexão agora — abri com o que estava salvo neste aparelho.', '📴');
+      return false;
+    }
     msg.textContent = ehFalhaDeRede(error)
         ? 'Não consegui falar com o servidor. Confira a internet e tente de novo daqui a pouco.'
       : error.message === 'Invalid login credentials' ? 'Usuário ou senha errados.'
@@ -4468,6 +4539,7 @@ async function fazerLogin(ev) {
     msg.className = 'login-msg err';
     return false;
   }
+  ultimoUsuario = usuario;
   if (precisaCriarSenha(data.user)) { mostrarCriarSenha(); return false; }
   entrarNoApp();
   return false;
@@ -4498,6 +4570,9 @@ async function criarSenha(ev) {
   return false;
 }
 async function sair() {
+  /* sair de propósito encerra também o acesso sem internet — senão bastaria
+     ficar offline para voltar sem senha */
+  Store.del(ACESSO_KEY);
   if (sb) await sb.auth.signOut();
   location.reload();
 }
@@ -4520,19 +4595,98 @@ function abrirTrocaSenha() {
     { label: 'Cancelar', cls: 'btn-ghost', fn: openConfig }
   ]);
 }
-async function entrarNoApp() {
+/* ─────────── entrar sem internet ───────────
+   O app guarda tudo no aparelho e funciona sem sinal, mas a tela de login
+   barrava o dono antes de ele chegar nos próprios dados. Se este aparelho já
+   entrou antes e a rede está fora, abre com o que está salvo e sincroniza
+   quando voltar. Vale só por 30 dias: aparelho parado há mais tempo pede senha. */
+const ACESSO_KEY = 'domtavares_acesso';
+const DIAS_OFFLINE = 30;
+let modoOffline = false;
+let relogioOffline = null;
+function registrarAcesso(usuario) {
+  let ant = {};
+  try { ant = JSON.parse(Store.get(ACESSO_KEY) || '{}'); } catch (e) { ant = {}; }
+  Store.set(ACESSO_KEY, JSON.stringify({ usuario: usuario || ant.usuario || '', quando: Date.now() }));
+}
+function acessoOfflinePermitido(usuario) {
+  let a = null;
+  try { a = JSON.parse(Store.get(ACESSO_KEY) || 'null'); } catch (e) { return false; }
+  if (!a || !a.quando) return false;
+  if (Date.now() - a.quando > DIAS_OFFLINE * 86400000) return false;
+  if (!Store.get(DB_KEY)) return false;                      // sem dados salvos não há o que mostrar
+  return usuario ? a.usuario === usuario : true;
+}
+function atualizarBarraOffline() {
+  const bar = document.getElementById('barraOffline');
+  if (!bar) return;
+  const mostrar = modoOffline || sbStatus === 'offline';
+  bar.style.display = mostrar ? '' : 'none';
+  if (!mostrar) return;
+  const pend = pendenciasOffline();
+  document.getElementById('boDetalhe').textContent = pend
+    ? `${pend} alteração(ões) esperando para subir. Está tudo salvo neste aparelho — nada se perde.`
+    : 'Você está vendo o que já estava salvo neste aparelho. O que fizer agora sobe sozinho quando a internet voltar.';
+}
+/* volta a falar com o servidor: refaz a sessão, sobe o que ficou pendente e baixa o resto */
+async function tentarVoltarOnline(manual) {
+  const btn = document.getElementById('boBtn');
+  if (manual && btn) { btn.disabled = true; btn.textContent = 'Tentando…'; }
+  await checarSupabase();
+  if (sbStatus !== 'online') {
+    if (manual) { toast('Ainda sem conexão. Pode seguir usando — nada se perde.', '📴'); atualizarBarraOffline(); }
+    if (btn) { btn.disabled = false; btn.textContent = 'Tentar de novo'; }
+    return false;
+  }
+  /* o token pode ter vencido enquanto estava offline; o refresh precisa de rede */
+  let sessao = null;
+  try { const r = await sb.auth.getSession(); sessao = r.data && r.data.session; } catch (e) { sessao = null; }
+  if (!sessao) {
+    sbStatus = 'offline';
+    if (btn) { btn.disabled = false; btn.textContent = 'Tentar de novo'; }
+    document.getElementById('boDetalhe').textContent =
+      'A internet voltou, mas seu acesso expirou. Feche e abra o app para entrar de novo — seus dados continuam salvos aqui.';
+    return false;
+  }
+  modoOffline = false;
+  if (relogioOffline) { clearInterval(relogioOffline); relogioOffline = null; }
+  if (btn) { btn.disabled = false; btn.textContent = 'Tentar de novo'; }
+  registrarAcesso();
+  await conectarNuvem();
+  applyBrand();
+  if (!modoOffline && sbStatus === 'online') toast('Conexão de volta. Tudo sincronizado.', '☁️');
+  return true;
+}
+async function entrarNoApp(offline) {
+  modoOffline = !!offline;
+  /* sem isso o app continuaria se dando por online: a bolinha ficaria verde e
+     cada saveDB tentaria subir com uma sessão que não existe */
+  if (modoOffline) sbStatus = 'offline';
   document.body.classList.remove('locked');
   buildNav();
   updateSyncChip();
   switchTab('painel');                 // mostra o cache local na hora, sem esperar a rede
+  atualizarBarraOffline();
+  if (modoOffline) {
+    applyBrand();
+    /* tenta sozinho de tempos em tempos; quando a rede voltar, sobe tudo */
+    if (!relogioOffline) {
+      relogioOffline = setInterval(() => tentarVoltarOnline(false), 30000);
+      window.addEventListener('online', () => tentarVoltarOnline(false));
+    }
+    return;
+  }
+  registrarAcesso(ultimoUsuario);
   await checarSupabase();
   await conectarNuvem();               // depois troca pelos dados da nuvem
+  atualizarBarraOffline();             // conectarNuvem sai cedo se o servidor não respondeu
   applyBrand();
 }
 
 /* ─────────── Boot ─────────── */
 function boot() {
   loadDB();
+  carregarEspelho();
   applyTheme(Store.get('domtavares_theme') === 'dark' ? 'dark' : 'light');   // claro é o padrão
   applyValores(Store.get('domtavares_ocultar') === '1');
   if (Store.get('domtavares_sidebar') === '1') document.getElementById('appwin').classList.add('sidebar-collapsed');
@@ -4540,11 +4694,20 @@ function boot() {
   document.getElementById('loginLogo').querySelector('img').alt = nomeBarbearia();
   document.getElementById('loginNomeApp').textContent = nomeBarbearia();
   if (!sb) { entrarNoApp(); return; }   // sem SDK, não trava o dono fora do próprio app
-  sb.auth.getSession().then(({ data }) => {
-    if (!data || !data.session) return;                          // segue na tela de login
+  /* getSession lê do próprio aparelho, mas renova o token pela rede quando ele
+     venceu — com o servidor fora, isso trava. Por isso o prazo: passou disso,
+     assume que é queda de conexão e abre com o que está salvo. */
+  const comSessao = ({ data }) => {
+    if (!data || !data.session) { semSessao(); return; }
     if (precisaCriarSenha(data.session.user)) mostrarCriarSenha();
     else entrarNoApp();
-  });
+  };
+  const semSessao = () => { if (acessoOfflinePermitido()) entrarNoApp(true); };  // senão, segue na tela de login
+  let respondeu = false;
+  const prazo = setTimeout(() => { if (!respondeu) semSessao(); }, 8000);
+  sb.auth.getSession()
+    .then(r => { respondeu = true; clearTimeout(prazo); comSessao(r); })
+    .catch(() => { respondeu = true; clearTimeout(prazo); semSessao(); });
 }
 boot();
 </script>
