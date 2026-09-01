@@ -2805,9 +2805,13 @@ function irParaMetas() { finTab = 'metas'; switchTab('financeiro'); }
 const CATEGORIAS = {
   barbearia: ['Aluguel', 'Energia', 'Água', 'Internet', 'Insumos', 'Produtos', 'Lavanderia',
               'Manutenção', 'Equipamento', 'Marketing', 'Taxa de cartão', 'Contador', 'Impostos', 'Outros'],
-  pessoal: ['Mercado', 'Aluguel / Moradia', 'Energia', 'Água', 'Internet', 'Telefone', 'Pensão',
-            'Transporte', 'Combustível', 'Saúde', 'Farmácia', 'Educação', 'Lazer', 'Roupas',
-            'Cartão de crédito', 'Empréstimo', 'Outros']
+  /* as 14 primeiras são as que o próprio Tavares pediu, na palavra dele;
+     o resto são sugestões que já estavam aqui e continuam disponíveis */
+  pessoal: ['Aluguel', 'Água mineral', 'Almoço', 'Empréstimo', 'Equipamentos', 'Insumos',
+            'Internet', 'Impostos', 'Lavanderia', 'Mercado', 'Pensão', 'Pessoal',
+            'Produtos', 'Passagem',
+            'Aluguel / Moradia', 'Energia', 'Água', 'Telefone', 'Transporte', 'Combustível',
+            'Saúde', 'Farmácia', 'Educação', 'Lazer', 'Roupas', 'Cartão de crédito', 'Outros']
 };
 /* junta as sugeridas com as que ele já usou, pra não perder nada do histórico */
 function categoriasDe(escopo) {
