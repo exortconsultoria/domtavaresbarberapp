@@ -40,3 +40,12 @@ além do SDK do Supabase (carregado por CDN).
 2. **Restringir o RLS** ao usuário dono, em vez de liberar para todo `authenticated`.
 3. **Migrar os dados** do `localStorage` para o Supabase, gravando os campos de
    snapshot (`valor`, `comissao_pct`, `duracao_min`) na conclusão do atendimento.
+# Relatório mensal em PDF
+
+No **Financeiro**, toque em **Relatório do mês · PDF**. Escolha o mês e toque em **Baixar relatório em PDF**. A consulta abre em uma página separada e permite voltar ao financeiro.
+
+O documento separa os lançamentos da barbearia e os pessoais de Tavares, com data, descrição, categoria, forma de pagamento, situação e valor. Despesas a pagar e entradas previstas ficam fora dos totais pagos/recebidos. A seleção usa a data do lançamento, não uma data de liquidação bancária. Meses anteriores são identificados como encerrados pelo calendário, sem afirmar que foram conciliados. O mês atual permanece em andamento.
+
+Esta funcionalidade somente lê os dados disponíveis no aparelho; não altera o Supabase nem divide automaticamente as receitas. Um aviso acompanha o PDF quando há erro de sincronização ou falta de conexão. Os valores completos aparecem no PDF mesmo se estiverem ocultos no app.
+
+Publicar juntos `index.html`, `relatorio.js`, `jspdf.umd.min.js` e `jspdf.plugin.autotable.min.js`. As bibliotecas de PDF são locais e mantêm seus avisos de licença. Não há SQL novo. Teste isolado com dados fictícios: `node test-relatorio.cjs`.

@@ -1451,7 +1451,7 @@ function buildBottomNav() {
 function switchTab(id) {
   activeTab = id;
   document.querySelectorAll('.tab-btn[data-tab]').forEach(b => b.classList.toggle('active', b.dataset.tab === id));
-  const v = VIEWS.find(x => x.id === id) || VIEWS[0];
+  const v = id === 'relatorio' ? { label: 'Relatório do mês', sub: 'Barbearia e contas pessoais' } : VIEWS.find(x => x.id === id) || VIEWS[0];
   document.getElementById('chromeTitle').textContent = v.label;
   document.getElementById('chromeSub').textContent = v.sub;
   document.getElementById('filtrosWrap').style.display = id === 'atendimentos' ? '' : 'none';
@@ -1473,6 +1473,7 @@ function render() {
   else if (activeTab === 'atendimentos') el.innerHTML = renderAtendimentos();
   else if (activeTab === 'clientes') el.innerHTML = renderModuloClientes();
   else if (activeTab === 'financeiro') el.innerHTML = renderFinanceiro();
+  else if (activeTab === 'relatorio') el.innerHTML = renderRelatorio();
   else if (activeTab === 'ajustes') el.innerHTML = renderAjustes();
   if (activeTab === 'atendimentos') buildFiltrosPanel();
 }
@@ -2774,6 +2775,7 @@ function seletorMes() {
 function renderFinanceiro() {
   const comMes = ['mov', 'barbearia', 'pessoal', 'custos', 'com'].includes(finTab);
   return `
+  <div style="display:flex;justify-content:flex-end;margin-bottom:12px"><button class="btn" onclick="abrirRelatorio()">Relatório do mês · PDF</button></div>
   <div class="dataview-bar">
     <div class="modal-tabs" style="margin:0;border:none">
       <button class="mtab ${finTab === 'mov' ? 'active' : ''}" onclick="setFinTab('mov')">Visão geral</button>
@@ -4715,5 +4717,8 @@ function boot() {
 }
 boot();
 </script>
+<script src="jspdf.umd.min.js"></script>
+<script src="jspdf.plugin.autotable.min.js"></script>
+<script src="relatorio.js"></script>
 </body>
 </html>
