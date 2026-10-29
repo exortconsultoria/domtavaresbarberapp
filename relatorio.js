@@ -41,7 +41,7 @@ function renderRelatorio() {
   return `<div style="max-width:960px;margin:auto">
     <button class="btn" onclick="switchTab('financeiro')">‹ Voltar ao financeiro</button>
     <h2>Seu mês em detalhes</h2>
-    <p>O PDF começa com um resumo visual do mês, depois mostra as despesas por categoria e, no final, cada lançamento. Baixe para guardar ou compartilhar.</p>
+    <p>Resumo de quanto entrou e quanto foi gasto, com as despesas da barbearia e as pessoais separadas. PDF consolidado, sem a lista de cada lançamento.</p>
     <div class="p-block"><label for="relatorioMes">Qual mês você quer consultar?</label>
       <input id="relatorioMes" type="month" class="srch" style="display:block;width:100%;max-width:240px;margin:12px 0" value="${esc(r.mes)}" onchange="mudarMesRelatorio(this.value)">
       <p><b>${esc(fmtMonth(r.mes))}</b> · ${r.estado}</p>
@@ -74,83 +74,52 @@ function criarRelatorioPDF(r, aviso, emitido = new Date()) {
   const recebido = r.grupos.reduce((v, g) => v + Math.round(g.entradas * 100), 0) / 100;
   const pago = r.grupos.reduce((v, g) => v + Math.round(g.saidas * 100), 0) / 100;
   const pendente = r.grupos.reduce((v, g) => v + Math.round(g.pagar * 100), 0) / 100;
-  texto('DOM TAVARES', 18, 11);
-  texto('Seu mês em um olhar', 29, 22);
-  texto(`${fmtMonth(r.mes)} - ${r.estado}`, 39, 11);
-  texto(`Emitido em ${emitido.toLocaleString('pt-BR')}`, 47, 8);
-  const cartoes = [ ['Entrou no mês', recebido, verde], ['Despesas pagas', pago, vermelho],
-    ['Entradas menos saídas', recebido - pago, recebido - pago < 0 ? vermelho : verde], ['Ainda falta pagar', pendente, vermelho] ];
-  cartoes.forEach(([titulo, valor, cor], i) => {
-    const x = 16 + (i % 2) * 92, y = 55 + Math.floor(i / 2) * 30;
-    doc.setFillColor(244, 246, 249); doc.roundedRect(x, y, 86, 26, 3, 3, 'F');
-    rotulo(titulo, x + 5, y + 8, 9);
-    rotulo(money(valor), x + 5, y + 19, 16, cor);
+  const negocio = r.grupos[0], pessoal = r.grupos[1];
+  texto('DOM TAVARES | RESUMO FINANCEIRO', 20, 16);
+  texto(fmtMonth(r.mes) + ' · ' + r.estado, 31, 11);
+  texto('Emitido em ' + emitido.toLocaleString('pt-BR'), 39, 8);
+  const cards = [ ['Entradas recebidas', recebido, verde], ['Gastos da barbearia', negocio.saidas, vermelho],
+    ['Gastos pessoais', pessoal.saidas, vermelho], ['Diferença final', recebido - pago, recebido >= pago ? verde : vermelho] ];
+  cards.forEach(([titulo, valor, cor], i) => {
+    const x = 16 + (i % 2) * 92, y = 49 + Math.floor(i / 2) * 31;
+    doc.setFillColor(244, 246, 249); doc.roundedRect(x, y, 86, 27, 3, 3, 'F');
+    rotulo(titulo, x + 5, y + 9, 10); rotulo(money(valor), x + 5, y + 21, 17, cor);
   });
-  texto('Barbearia e pessoal, lado a lado', 126, 14);
-  texto('Verde: entradas recebidas. Vermelho: despesas pagas. Mesma escala nos dois gráficos.', 134, 8);
-  const maximo = Math.max(1, ...r.grupos.flatMap(g => [g.entradas, g.saidas]));
-  r.grupos.forEach((g, i) => {
-    const x = 16 + i * 92;
-    rotulo(i ? 'Pessoal · Tavares' : 'Barbearia', x, 146, 12);
-    [[g.entradas, 'Entrou', verde], [g.saidas, 'Saiu', vermelho]].forEach(([valor, label, cor], j) => {
-      const y = 156 + j * 19;
-      rotulo(`${label}: ${money(valor)}`, x, y, 9);
-      doc.setFillColor(237, 240, 244); doc.rect(x, y + 3, 84, 5, 'F');
-      if (valor > 0) { doc.setFillColor(...cor); doc.rect(x, y + 3, 84 * valor / maximo, 5, 'F'); }
-    });
-    rotulo(`A pagar: ${money(g.pagar)}`, x, 193, 9, vermelho);
-    rotulo(`Entradas previstas: ${money(g.receber)}`, x, 200, 9);
+  texto('Entradas e gastos', 122, 13);
+  const barras = [['Entradas', recebido, verde], ['Barbearia', negocio.saidas, vermelho], ['Pessoal', pessoal.saidas, vermelho]];
+  const max = Math.max(1, ...barras.map(b => b[1]));
+  barras.forEach(([nome, valor, cor], i) => {
+    const y = 133 + i * 15;
+    rotulo(nome, 16, y + 4, 9);
+    doc.setFillColor(237, 240, 244); doc.rect(48, y, 105, 6, 'F');
+    if (valor > 0) { doc.setFillColor(...cor); doc.rect(48, y, 105 * valor / max, 6, 'F'); }
+    doc.setTextColor(...cor); doc.text(money(valor), 194, y + 4, {align: 'right'});
   });
-  texto(pago ? `De cada R$ 100 em despesas pagas, R$ ${(r.grupos[0].saidas / pago * 100).toFixed(0)} foram da barbearia e R$ ${(100 - Math.round(r.grupos[0].saidas / pago * 100)).toFixed(0)} foram pessoais.` : 'Ainda não há despesas pagas registradas neste mês.', 214, 10);
-  let y = texto('A diferença entre entradas e saídas não é o saldo bancário. Contas a pagar e entradas previstas ficam fora dela. Valores pela data do lançamento; receitas sem divisão automática.', 233, 8);
+  doc.autoTable({ startY: 183, margin: {left:16, right:16}, theme:'plain',
+    body: [ ['Entradas da barbearia', money(negocio.entradas)], ['(-) Gastos pagos da barbearia', money(negocio.saidas)],
+      ['Resultado da barbearia', money(negocio.entradas - negocio.saidas)], ['(+) Outras entradas pessoais registradas', money(pessoal.entradas)],
+      ['(-) Gastos pessoais pagos', money(pessoal.saidas)], ['Diferença final', money(recebido - pago)] ],
+    styles: {fontSize:10, cellPadding:2.3}, columnStyles:{1:{halign:'right'}},
+    didParseCell: d => {if ([2,5].includes(d.row.index)) { d.cell.styles.fillColor=[244,246,249]; d.cell.styles.fontStyle='bold'; }}
+  });
+  let y = texto('A pagar: ' + money(pendente) + ' · Entradas previstas: ' + money(r.grupos.reduce((v,g)=>v+g.receber,0)), doc.lastAutoTable.finalY + 8, 9);
+  y = texto('Valores registrados no app, pela data do lançamento. Previsões não entram no resultado. Diferença final não é saldo bancário nem retirada do titular.', y, 8);
   texto(aviso, y, 8);
-  // Categorias vêm antes de qualquer lançamento individual.
+  doc.addPage();
+  texto('Gastos por categoria', 20, 17);
+  texto(fmtMonth(r.mes) + ' · Barbearia e pessoal', 31, 10);
+  let inicio = 44;
   r.grupos.forEach(g => {
-    doc.addPage();
-    let inicio = texto(`Para onde foi o dinheiro?`, 20, 18);
-    inicio = texto(g.titulo + ' | ' + fmtMonth(r.mes), inicio, 11);
+    if (inicio > 240) { doc.addPage(); inicio = 22; }
+    inicio = texto(g.titulo, inicio, 13);
     const categorias = categoriasRelatorio(g);
-    if (!categorias.length) { texto('Nenhuma despesa registrada neste mês.', inicio); return; }
-    const pagas = categorias.filter(c => c.pago > 0);
-    if (pagas.length) {
-      const principal = pagas[0];
-      const nomePrincipal = principal.nome.length > 100 ? principal.nome.slice(0, 97) + '...' : principal.nome;
-      inicio = texto(`Maior despesa paga: ${nomePrincipal}, com ${money(principal.pago / 100)} (${(principal.pago / 100 / g.saidas * 100).toFixed(1).replace('.', ',')}% das despesas pagas).`, inicio, 10);
-      inicio = texto('Maiores categorias de despesas pagas', inicio, 11);
-      pagas.slice(0, 5).forEach(c => {
-        const linhasNome = doc.splitTextToSize(c.nome, 115);
-        const nomes = linhasNome.slice(0, 2);
-        if (linhasNome.length > 2) nomes[1] = nomes[1].slice(0, -3) + '...';
-        doc.setFontSize(9); doc.setTextColor(...azul); doc.text(nomes, 16, inicio);
-        doc.text(money(c.pago / 100), 194, inicio, { align: 'right' });
-        inicio += nomes.length * 4;
-        doc.setFillColor(237, 240, 244); doc.rect(16, inicio, 178, 4, 'F');
-        doc.setFillColor(...vermelho); doc.rect(16, inicio, 178 * c.pago / principal.pago, 4, 'F');
-        inicio += 11;
-      });
-    } else inicio = texto('Nenhuma despesa paga. As contas previstas aparecem na tabela abaixo.', inicio, 10);
-    inicio = texto('Todas as categorias · valores pagos e a pagar separados', inicio + 3, 10);
-    doc.autoTable({ startY: inicio, margin: { top: 20, bottom: 20, left: 16, right: 16 },
-      head: [['Categoria', 'Já pago', '% do pago', 'A pagar']],
-      body: categorias.map(c => [c.nome, money(c.pago / 100), g.saidas ? `${(c.pago / 100 / g.saidas * 100).toFixed(1).replace('.', ',')}%` : '-', money(c.pendente / 100)]),
-      foot: [['Total', money(g.saidas), g.saidas ? '100%' : '-', money(g.pagar)]], showFoot: 'lastPage',
-      theme: 'striped', headStyles: { fillColor: azul }, footStyles: { fillColor: azul },
-      styles: { fontSize: 9, cellPadding: 3, overflow: 'linebreak' }, columnStyles: { 0: { cellWidth: 76 } }
-    });
-  });
-  r.grupos.forEach(g => {
-    doc.addPage();
-    let inicio = texto(g.titulo, 20, 16);
-    inicio = texto(`${fmtMonth(r.mes)} | ${g.itens.length} lançamentos`, inicio, 10);
-    if (!g.itens.length) { texto('Nenhum lançamento neste mês.', inicio); return; }
-    doc.autoTable({ startY: inicio, margin: { top: 20, bottom: 20, left: 12, right: 12 },
-      head: [['Data', 'Tipo', 'Descrição / categoria', 'Pagamento', 'Situação', 'Valor']],
-      body: g.itens.map(f => [f.data.split('-').reverse().join('/'), f.tipo === 'receita' ? 'Entrada' : 'Despesa',
-        `${f.descricao || 'Sem descrição'}\n${f.categoria || 'Sem categoria'}`, PAG_LABEL[f.formaPag] || f.formaPag || 'Não informado', situacaoRelatorio(f), money(f.centavos / 100)]),
-      theme: 'striped', headStyles: { fillColor: azul }, styles: { fontSize: 8, cellPadding: 2.5, overflow: 'linebreak' },
-      columnStyles: { 0: { cellWidth: 22 }, 1: { cellWidth: 18 }, 2: { cellWidth: 61 }, 3: { cellWidth: 28 }, 4: { cellWidth: 24 }, 5: { cellWidth: 33, halign: 'right' } },
-      didParseCell: d => { if (d.section === 'body' && d.column.index === 5) d.cell.styles.textColor = g.itens[d.row.index].tipo === 'receita' ? verde : vermelho; }
-    });
+    doc.autoTable({startY:inicio, margin:{top:20,bottom:20,left:16,right:16}, theme:'striped',
+      head:[['Categoria','Pago','A pagar']],
+      body:categorias.length ? categorias.map(c=>[c.nome,money(c.pago/100),money(c.pendente/100)]) : [['Sem despesas registradas','-','-']],
+      foot:[['Total',money(g.saidas),money(g.pagar)]],showFoot:'lastPage',
+      headStyles:{fillColor:azul},footStyles:{fillColor:azul},styles:{fontSize:10,cellPadding:3},
+      columnStyles:{0:{cellWidth:96},1:{halign:'right'},2:{halign:'right'}}});
+    inicio=doc.lastAutoTable.finalY+15;
   });
   const paginas = doc.getNumberOfPages();
   for (let i = 1; i <= paginas; i++) { doc.setPage(i); doc.setTextColor(100); doc.setFontSize(8); doc.text(`Dom Tavares | ${r.mes} | Página ${i} de ${paginas}`, 16, 289); }

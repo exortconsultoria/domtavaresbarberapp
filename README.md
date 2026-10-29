@@ -44,7 +44,7 @@ além do SDK do Supabase (carregado por CDN).
 
 No **Financeiro**, toque em **Relatório do mês · PDF**. Escolha o mês e toque em **Baixar relatório em PDF**. A consulta abre em uma página separada e permite voltar ao financeiro.
 
-O documento separa os lançamentos da barbearia e os pessoais de Tavares, com data, descrição, categoria, forma de pagamento, situação e valor. Despesas a pagar e entradas previstas ficam fora dos totais pagos/recebidos. A seleção usa a data do lançamento, não uma data de liquidação bancária. Meses anteriores são identificados como encerrados pelo calendário, sem afirmar que foram conciliados. O mês atual permanece em andamento.
+O PDF é consolidado: a primeira página reúne entradas recebidas, gastos pagos da barbearia, gastos pessoais e a diferença final, com um gráfico comparativo e a composição do resultado. Em seguida, as despesas aparecem agrupadas por categoria, sem transações individuais. Normalmente são duas páginas; listas extensas de categorias continuam nas páginas seguintes. Despesas a pagar e entradas previstas ficam fora dos totais pagos/recebidos. A seleção usa a data do lançamento, não uma data de liquidação bancária. Meses anteriores são identificados como encerrados pelo calendário, sem afirmar que foram conciliados. O mês atual permanece em andamento.
 
 Esta funcionalidade somente lê os dados disponíveis no aparelho; não altera o Supabase nem divide automaticamente as receitas. Um aviso acompanha o PDF quando há erro de sincronização ou falta de conexão. Os valores completos aparecem no PDF mesmo se estiverem ocultos no app.
 

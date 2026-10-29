@@ -35,11 +35,15 @@ assert.equal(ctx.dadosRelatorio('2025-01', rows, '2026-10-27').linhas.length, 0)
 const muitos = Array.from({length: 130}, (_, i) => ({id: String(i), data: '2026-10-02', tipo: i % 3 ? 'despesa' : 'receita', escopo: i % 2 ? 'pessoal' : 'barbearia', valor: 10.01,
   descricao: 'EXEMPLO - descrição longa de serviço ou compra para verificar a quebra de linhas e a leitura em todas as páginas.', categoria: ['Energia', 'Mercado', 'Aluguel', 'Insumos', 'Internet', 'Transporte', 'Outros'][i % 7], formaPag: 'pix', pago: i % 4 !== 0}));
 const pdf = ctx.criarRelatorioPDF(ctx.dadosRelatorio('2026-10', muitos, '2026-10-27'), 'DADOS FICTÍCIOS - somente teste de apresentação.');
-assert.ok(pdf.getNumberOfPages() > 3);
+assert.equal(pdf.getNumberOfPages(), 2);
 const conteudoPDF = pdf.output();
-assert.ok(conteudoPDF.indexOf('Seu m') < conteudoPDF.indexOf('Para onde foi'));
+assert.ok(conteudoPDF.indexOf('RESUMO FINANCEIRO') < conteudoPDF.indexOf('Gastos por categoria'));
+assert.ok(!conteudoPDF.includes('EXEMPLO -'));
 const vazio = ctx.criarRelatorioPDF(ctx.dadosRelatorio('2025-01', rows, '2026-10-27'), 'Sem registros.');
-assert.equal(vazio.getNumberOfPages(), 5);
+assert.equal(vazio.getNumberOfPages(), 2);
+const muitasCategorias = muitos.map((f, i) => ({...f, tipo: 'despesa', categoria: 'Categoria ' + i}));
+const extenso = ctx.criarRelatorioPDF(ctx.dadosRelatorio('2026-10', muitasCategorias, '2026-10-27'), 'Teste de categorias.');
+assert.ok(extenso.getNumberOfPages() > 2);
 if (process.argv.includes('--pdf')) fs.writeFileSync('teste-relatorio.pdf', Buffer.from(pdf.output('arraybuffer')));
 const html = fs.readFileSync('index.html', 'utf8');
 for (const m of html.matchAll(/<script(?:\s[^>]*)?>([\s\S]*?)<\/script>/g)) new vm.Script(m[1]);
