@@ -1194,17 +1194,40 @@ function carregarEspelho() {
   try { const r = Store.get(NUVEM_KEY); espelhoSalvo = r ? JSON.parse(r) : null; }
   catch (e) { espelhoSalvo = null; }
 }
+/* O espelho é o que sabemos estar na nuvem: em memória é `nuvem`, entre sessões
+   fica no localStorage. Sem ele não há como saber o que ainda não subiu. */
+const espelhoAtual = () => nuvem || espelhoSalvo;
+
 /* quantas linhas mudaram neste aparelho desde a última vez que falamos com a nuvem */
-function pendenciasOffline() {
-  if (!espelhoSalvo) return 0;
+function pendenciasOffline(espelho) {
+  const ref = espelho || espelhoAtual();
+  if (!ref) return 0;
   let n = 0;
   for (const chave of COLECOES) {
     const m = MAP[chave];
-    const antes = new Map((espelhoSalvo[chave] || []).map(o => [o.id, JSON.stringify(m.toRow(o))]));
+    const antes = new Map((ref[chave] || []).map(o => [o.id, JSON.stringify(m.toRow(o))]));
     const agora = db[chave] || [];
     n += agora.filter(o => antes.get(o.id) !== JSON.stringify(m.toRow(o))).length;
     const ids = new Set(agora.map(o => o.id));
     n += [...antes.keys()].filter(id => !ids.has(id)).length;
+  }
+  return n;
+}
+
+/* Rede de segurança do download: devolve ao `db` as linhas que existiam aqui, a
+   nuvem não tem, e nunca estiveram no espelho — ou seja, nasceram neste aparelho
+   e o envio não chegou a acontecer. Linha apagada em outro aparelho não cai aqui:
+   para ter sido apagada, ela precisou subir antes, e aí estaria no espelho. */
+function resgatarNaoSincronizadas(local, espelho) {
+  if (!espelho) return 0;              // sem espelho não dá para distinguir: a nuvem manda
+  let n = 0;
+  for (const chave of COLECOES) {
+    if (!Array.isArray(db[chave])) db[chave] = [];
+    const daNuvem = new Set(db[chave].map(o => o.id));
+    const jaConhecidas = new Set((espelho[chave] || []).map(o => o.id));
+    (local[chave] || []).forEach(o => {
+      if (!daNuvem.has(o.id) && !jaConhecidas.has(o.id)) { db[chave].push(o); n++; }
+    });
   }
   return n;
 }
@@ -1379,17 +1402,26 @@ function migrarIdsParaUUID() {
 async function conectarNuvem() {
   if (!sb || sbStatus !== 'online') return;
   try {
-    /* O que foi feito offline sobe ANTES de baixar. Invertendo a ordem, a nuvem
-       — que não conhece essas linhas — sobrescreveria o trabalho do dia. */
-    const pendentes = pendenciasOffline();
+    /* Tudo que ainda não subiu sobe ANTES de baixar. Invertendo a ordem, a nuvem
+       — que não conhece essas linhas — sobrescreveria o trabalho do dia.
+       Isso já custou receitas de verdade: a sincronização sobe `agendamentos`
+       antes de `financeiro`, então uma queda entre as duas deixava o atendimento
+       na nuvem e a receita só no aparelho — e o download seguinte apagava ela. */
+    clearTimeout(syncTimer);                      // o debounce de 400ms não pode correr junto do download
+    const espelhoAntes = espelhoAtual();
+    const pendentes = pendenciasOffline(espelhoAntes);
     if (pendentes) {
-      nuvem = espelhoSalvo;
+      nuvem = espelhoAntes;
       await sincronizar();
       if (syncEstado === 'ok') {
         espelhoSalvo = null;
-        toast(`${pendentes} alteração(ões) feita(s) sem internet foram para a nuvem.`, '☁️');
+        toast(`${pendentes} alteração(ões) que faltavam foram para a nuvem.`, '☁️');
       }
     }
+    /* o que este aparelho tem agora, e o que sabemos que a nuvem tem */
+    const antesDoDownload = COLECOES.reduce((a, k) => (a[k] = (db[k] || []).slice(), a), {});
+    const jaNaNuvem = espelhoAtual();
+
     const remoto = await baixarDaNuvem();
     const temNaNuvem = COLECOES.some(k => (remoto[k] || []).length);
     const temLocal = COLECOES.some(k => (db[k] || []).length);
@@ -1401,8 +1433,11 @@ async function conectarNuvem() {
       db = Object.assign(remoto, { _upd: Date.now() });
       normalizeDB();
       nuvem = espelho;
+      /* última barreira: nada que nasceu aqui e nunca subiu pode morrer no download */
+      const resgatadas = resgatarNaoSincronizadas(antesDoDownload, jaNaNuvem);
       Store.set(DB_KEY, JSON.stringify(db));
       agendarSync();
+      if (resgatadas) toast(`${resgatadas} lançamento(s) ainda não tinham subido — recuperei e estou enviando.`, '🛟');
     } else if (temLocal) {
       const trocados = migrarIdsParaUUID();
       nuvem = { config: {} }; COLECOES.forEach(k => (nuvem[k] = []));
