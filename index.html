@@ -1319,8 +1319,25 @@ async function sincronizar() {
 }
 
 /* baixa tudo do Supabase para dentro do `db` */
+/* O Supabase devolve no máximo 1000 linhas por consulta, em silêncio: não dá
+   erro, só corta o resto. Quando o financeiro passou de 1000 lançamentos, tudo
+   que foi lançado depois continuava subindo mas nunca voltava para o aparelho.
+   Por isso a leitura é paginada, e ordenada por id para nenhuma linha ficar
+   entre duas páginas nem aparecer duas vezes. */
+const PAGINA = 1000;
+async function baixarTabela(tabela) {
+  let todas = [], de = 0;
+  while (true) {
+    const { data, error } = await sb.from(tabela).select('*')
+      .order('id', { ascending: true }).range(de, de + PAGINA - 1);
+    if (error) return { data: null, error };
+    todas = todas.concat(data || []);
+    if (!data || data.length < PAGINA) return { data: todas, error: null };
+    de += PAGINA;
+  }
+}
 async function baixarDaNuvem() {
-  const res = await Promise.all(COLECOES.map(k => sb.from(MAP[k].tabela).select('*')));
+  const res = await Promise.all(COLECOES.map(k => baixarTabela(MAP[k].tabela)));
   /* tabela ainda não criada volta vazia em vez de derrubar a leitura inteira */
   const erro = res.find(r => r.error && !['PGRST205', '42P01'].includes(r.error.code));
   if (erro) throw new Error(erro.error.message);
