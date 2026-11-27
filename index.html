@@ -583,6 +583,9 @@
     border: 1px solid rgba(124,144,99,.4); padding: 8px 14px; border-radius: 99px; font-size: .78rem;
     font-weight: 700; text-decoration: none; cursor: pointer; }
   .wa-btn:hover { filter: brightness(1.15); }
+  /* dinheiro que pode ter ficado de fora do faturamento: precisa saltar aos olhos */
+  .analise.alerta-receita { border: 1px solid var(--red); }
+  .analise.alerta-receita .an-tit { color: var(--red); }
   /* aviso de que o app está rodando com o que estava salvo no aparelho */
   .barra-offline { display: flex; align-items: center; gap: 10px; padding: 9px 16px;
     background: var(--amber-soft, rgba(190,140,40,.14)); border-bottom: 1px solid var(--border);
@@ -3034,6 +3037,30 @@ function graficoCascata(m) {
   </div>`;
 }
 
+/* aviso de atendimento concluído sem receita — fica no topo da Visão geral,
+   e some sozinho quando não há mais nenhum */
+function blocoReceitasFaltando() {
+  const faltando = atendimentosSemReceita();
+  if (!faltando.length) return '';
+  const total = somaBy(faltando, a => Number(a.valor) || 0);
+  return `<div class="analise alerta-receita" style="margin-bottom:16px">
+    <div class="an-tit">Conferir: ${faltando.length} atendimento${faltando.length > 1 ? 's' : ''} sem receita lançada</div>
+    <div class="an-hist">${faltando.length > 1 ? 'Esses atendimentos estão' : 'Esse atendimento está'} marcado${faltando.length > 1 ? 's' : ''} como concluído${faltando.length > 1 ? 's' : ''},
+      mas <b class="valor-oculto">${money(total)}</b> não entrou no faturamento. Confira se você recebeu e lance.</div>
+    ${faltando.map(a => {
+      const c = getCli(a.clienteId) || {};
+      return `<div class="li">
+        <div class="lbody">
+          <div class="lt">${fmtDate(a.data)} · ${String(a.hora).slice(0, 5)} · ${esc(c.nome || '—')}</div>
+          <div class="lm">${esc(nomesServicosDe(a))} · ${PAG_LABEL[a.formaPag] || '—'}</div>
+        </div>
+        <div class="lend valor-oculto">${money(a.valor)}</div>
+        <button class="mini ok" style="margin-left:10px" onclick="repararReceita('${a.id}')">Lançar</button>
+      </div>`;
+    }).join('')}
+  </div>`;
+}
+
 function finMov() {
   const m = metrics(finMes);
   /* filtro da lista: ver tudo, só a barbearia ou só o que é dele */
@@ -3052,6 +3079,7 @@ function finMov() {
   const taxasDoMes = somaBy(db.financeiro.filter(f => f.categoria === 'Taxa de cartão' && monthKey(f.data) === m.mk), f => f.valor);
   const recebidoCartao = (porForma.credito || 0) + (porForma.debito || 0) + (porForma.cartao || 0);
   return `
+  ${blocoReceitasFaltando()}
   <div class="stat-grid">
     ${stat(ICO.money, 'Receitas do mês', money(m.receita), fmtMonth(m.mk), 'valor', 'pos')}
     ${stat(ICO.box, 'Despesas da barbearia', money(m.despesaBarbearia), 'sem as contas pessoais', 'valor', 'neg')}
@@ -3958,6 +3986,72 @@ function setStatus(id, st) {
   toast(`Status alterado para <b>${ST_LABEL[st]}</b>.`, '🔁');
 }
 let concluirBruto = 0;   // valor bruto do atendimento sendo concluído, pro aviso de taxa em tempo real
+/* ─────────── receita de um atendimento ───────────
+   Um lugar só: a conclusão e o reparo de um atendimento que ficou sem receita
+   geram exatamente o mesmo lançamento. */
+function lancarReceita(a, forma, bruto, taxa) {
+  if (SEM_RECEITA.includes(forma)) return 0;
+  const c = getCli(a.clienteId);
+  const itens = servicosDoAgendamento(a.id);
+  const nomes = itens.map(i => nomeSrv(i.servicoId)).join(', ') || 'Atendimento';
+  /* se tudo que saiu foi produto, o lançamento é de venda, não de atendimento */
+  const soProdutos = itens.length > 0 && itens.every(i => (getSrv(i.servicoId) || {}).tipo === 'produto');
+  db.financeiro.push({
+    id: uid(), data: a.data, tipo: 'receita', categoria: soProdutos ? 'Produtos' : 'Atendimento',
+    descricao: `${nomes} — ${c ? c.nome : '—'}`, valor: bruto, formaPag: forma,
+    auto: true, agendamentoId: a.id
+  });
+  if (taxa > 0) {
+    const pct = (TAXA_MAQUINETA[forma] || 0) * 100;
+    db.financeiro.push({
+      id: uid(), data: a.data, tipo: 'despesa', categoria: 'Taxa de cartão',
+      descricao: `Taxa ${PAG_LABEL[forma]} (${pct.toFixed(2).replace('.', ',')}%) — ${c ? c.nome : '—'}`,
+      valor: taxa, formaPag: forma, auto: true, agendamentoId: a.id
+    });
+    return 2;
+  }
+  return 1;
+}
+
+/* ─────────── atendimento concluído que ficou sem receita ───────────
+   Já aconteceu três vezes: o atendimento subiu com valor e forma de pagamento,
+   mas a receita não chegou no financeiro — e o dinheiro sumiu do faturamento sem
+   ninguém notar. Em vez de depender de alguém conferir linha a linha, o app
+   mostra o caso e deixa lançar com um toque. */
+function atendimentosSemReceita() {
+  const comReceita = new Set(db.financeiro
+    .filter(f => f.tipo === 'receita' && f.agendamentoId).map(f => f.agendamentoId));
+  return db.agendamentos
+    .filter(a => a.status === 'concluido' && !SEM_RECEITA.includes(a.formaPag)
+      && Number(a.valor) > 0 && !comReceita.has(a.id))
+    .sort((x, y) => String(y.data).localeCompare(String(x.data)) || String(y.hora).localeCompare(String(x.hora)));
+}
+function repararReceita(id) {
+  const a = db.agendamentos.find(x => x.id === id);
+  if (!a) return;
+  const c = getCli(a.clienteId);
+  const bruto = Number(a.valor) || 0;
+  const taxa = Number(a.taxaMaquineta) || Math.round(bruto * (TAXA_MAQUINETA[a.formaPag] || 0) * 100) / 100;
+  openCModal('Lançar a receita que faltou', `
+    <div style="font-size:.86rem;color:var(--text-dim);line-height:1.6">
+      Atendimento de <b style="color:var(--text)">${esc(c ? c.nome : '—')}</b> em
+      <b style="color:var(--text)">${fmtDateLong(a.data)}</b> às <b style="color:var(--text)">${String(a.hora).slice(0, 5)}</b>,
+      concluído em ${PAG_LABEL[a.formaPag] || '—'}.<br><br>
+      Vou lançar <b style="color:var(--accent-bright)">${money(bruto)}</b> de receita${taxa > 0
+        ? ` e <b style="color:var(--red)">${money(taxa)}</b> de taxa da maquineta` : ''}.<br><br>
+      <b style="color:var(--text)">Só confirme se esse valor realmente foi recebido.</b>
+      Se não foi, abra o atendimento e mude a forma de pagamento ou o status.
+    </div>`, [
+    { label: 'Lançar receita', cls: 'btn-ok', fn: () => {
+      if (atendimentosSemReceita().every(x => x.id !== a.id)) { closeCModal(); return; }   // já lançada
+      lancarReceita(a, a.formaPag, bruto, taxa);
+      saveDB(); closeCModal(); render();
+      toast(`Receita de ${money(bruto)} lançada.`, '✅');
+    } },
+    { label: 'Agora não', cls: 'btn-ghost', fn: closeCModal }
+  ]);
+}
+
 function concluir(id) {
   const a = db.agendamentos.find(x => x.id === id);
   if (!a || a.status === 'concluido') return;
@@ -4002,22 +4096,7 @@ function concluir(id) {
         const s = getSrv(i.servicoId);
         if (s && s.tipo === 'produto') s.estoque = Math.max(0, (Number(s.estoque) || 0) - 1);
       });
-      if (!SEM_RECEITA.includes(forma)) {
-        /* se tudo que saiu foi produto, o lançamento é de venda, não de atendimento */
-        const soProdutos = itens.every(i => (getSrv(i.servicoId) || {}).tipo === 'produto');
-        db.financeiro.push({
-          id: uid(), data: a.data, tipo: 'receita', categoria: soProdutos ? 'Produtos' : 'Atendimento',
-          descricao: `${nomes} — ${c ? c.nome : '—'}`, valor: bruto, formaPag: forma,
-          auto: true, agendamentoId: a.id
-        });
-        if (taxa > 0) {
-          db.financeiro.push({
-            id: uid(), data: a.data, tipo: 'despesa', categoria: 'Taxa de cartão',
-            descricao: `Taxa ${PAG_LABEL[forma]} (${(taxaPct * 100).toFixed(2).replace('.', ',')}%) — ${c ? c.nome : '—'}`,
-            valor: taxa, formaPag: forma, auto: true, agendamentoId: a.id
-          });
-        }
-      }
+      lancarReceita(a, forma, bruto, taxa);
       let msgExtra = '';
       if (c) {
         c.pontos = (c.pontos || 0) + (Number(db.config.pontosPorCorte) || 0);
