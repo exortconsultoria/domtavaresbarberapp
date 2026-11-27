@@ -3982,6 +3982,9 @@ function concluir(id) {
     <div id="avisoPag" style="font-size:.78rem;color:var(--text-mute);margin-top:10px;line-height:1.5"></div>`;
   openCModal('Concluir atendimento', body, [
     { label: 'Confirmar', fn: () => {
+      /* dois toques no mesmo botão rodavam isto duas vezes e lançavam a receita
+         (e a taxa da maquineta) em duplicata, no mesmo segundo */
+      if (a.status === 'concluido') return;
       const forma = val('fPag');
       const taxaPct = TAXA_MAQUINETA[forma] || 0;
       const taxa = Math.round(bruto * taxaPct * 100) / 100;
