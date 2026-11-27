@@ -583,6 +583,21 @@
     border: 1px solid rgba(124,144,99,.4); padding: 8px 14px; border-radius: 99px; font-size: .78rem;
     font-weight: 700; text-decoration: none; cursor: pointer; }
   .wa-btn:hover { filter: brightness(1.15); }
+  /* quantidade de um mesmo serviço (pai e filho no mesmo horário, 2 cortes) */
+  .qtd-ctrl { display: inline-flex; align-items: center; gap: 2px; flex: 0 0 auto; margin-left: auto; }
+  .qtd-ctrl button { width: 34px; height: 34px; border-radius: 9px; cursor: pointer;
+    border: 1px solid var(--border); background: var(--surface-2); color: var(--text);
+    font-size: 1.05rem; font-weight: 700; line-height: 1; display: flex; align-items: center; justify-content: center; }
+  .qtd-ctrl button:hover { border-color: var(--accent); color: var(--accent); }
+  .qtd-num { min-width: 26px; text-align: center; font-weight: 700; font-size: .9rem; }
+  .lixeira { width: 34px; height: 34px; border-radius: 9px; cursor: pointer; flex: 0 0 auto; margin-left: 6px;
+    border: 1px solid var(--border); background: transparent; color: var(--text-mute);
+    display: flex; align-items: center; justify-content: center; }
+  .lixeira svg { width: 16px; height: 16px; }
+  .lixeira:hover { border-color: var(--red); color: var(--red); }
+  @media (max-width: 480px) {
+    .qtd-ctrl button, .lixeira { width: 40px; height: 40px; }
+  }
   /* dinheiro que pode ter ficado de fora do faturamento: precisa saltar aos olhos */
   .analise.alerta-receita { border: 1px solid var(--red); }
   .analise.alerta-receita .an-tit { color: var(--red); }
@@ -3836,11 +3851,32 @@ function renderServicosDoForm(travado) {
   const el = document.getElementById('fServicosLista');
   if (!el) return;
   if (!formServicosTemp.length) { el.innerHTML = `<div class="empty-soft">Nenhum serviço adicionado ainda.</div>`; return; }
-  el.innerHTML = formServicosTemp.map((it, i) => `
+  /* agrupa iguais numa linha só com quantidade. Por baixo continua uma linha por
+     unidade em agendamentoServicos — pai e filho no mesmo horário viram dois
+     CORTE, e o valor do atendimento sai somado. Preço diferente (a tabela mudou
+     entre uma adição e outra) fica em linhas separadas, para não mascarar dinheiro. */
+  const grupos = [];
+  formServicosTemp.forEach(it => {
+    const chave = it.servicoId + '|' + it.valor;
+    const g = grupos.find(x => x.chave === chave);
+    if (g) g.qtd++; else grupos.push({ chave, servicoId: it.servicoId, valor: it.valor, qtd: 1 });
+  });
+  el.innerHTML = grupos.map(g => `
     <div class="li" style="padding:7px 2px">
-      <div class="lbody"><div class="lt" style="font-size:.85rem">${esc(nomeSrv(it.servicoId))}</div></div>
-      <div class="lend" style="font-size:.85rem">${money(it.valor)}</div>
-      ${travado ? '' : `<button type="button" class="subt-del" onclick="removerServicoDoForm(${i})" title="Remover">✕</button>`}
+      <div class="lbody">
+        <div class="lt" style="font-size:.85rem">${esc(nomeSrv(g.servicoId))}</div>
+        ${g.qtd > 1 ? `<div class="lm">${g.qtd} × ${money(g.valor)}</div>` : ''}
+      </div>
+      ${travado ? `<div class="lend" style="font-size:.85rem">${money(g.valor * g.qtd)}</div>`
+        : `<div class="qtd-ctrl">
+             <button type="button" onclick="mudarQtdServico('${g.chave}',-1)" aria-label="Tirar um">−</button>
+             <span class="qtd-num">${g.qtd}</span>
+             <button type="button" onclick="mudarQtdServico('${g.chave}',1)" aria-label="Somar um">+</button>
+           </div>
+           <div class="lend" style="font-size:.85rem;min-width:72px;text-align:right">${money(g.valor * g.qtd)}</div>
+           <button type="button" class="lixeira" onclick="removerGrupoServico('${g.chave}')" aria-label="Remover ${esc(nomeSrv(g.servicoId))}" title="Remover">
+             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/></svg>
+           </button>`}
     </div>`).join('') + `
     <div style="display:flex;justify-content:space-between;padding:8px 2px 2px;font-weight:700;border-top:1px solid var(--border);margin-top:2px">
       <span>Total</span><span>${money(somaBy(formServicosTemp, x => x.valor))}</span>
@@ -3853,8 +3889,22 @@ function addServicoAoForm() {
   formServicosTemp.push({ servicoId: id, valor: s.preco });
   renderServicosDoForm(false);
 }
-function removerServicoDoForm(i) {
-  formServicosTemp.splice(i, 1);
+/* a chave é servicoId|valor: mexe só nas unidades daquele serviço naquele preço */
+const indicesDoGrupo = chave => formServicosTemp
+  .map((it, i) => (it.servicoId + '|' + it.valor) === chave ? i : -1).filter(i => i >= 0);
+function mudarQtdServico(chave, delta) {
+  const idx = indicesDoGrupo(chave);
+  if (!idx.length) return;
+  if (delta > 0) {
+    const base = formServicosTemp[idx[0]];
+    formServicosTemp.push({ servicoId: base.servicoId, valor: base.valor });
+  } else {
+    formServicosTemp.splice(idx[idx.length - 1], 1);      // tira a última unidade
+  }
+  renderServicosDoForm(false);
+}
+function removerGrupoServico(chave) {
+  indicesDoGrupo(chave).reverse().forEach(i => formServicosTemp.splice(i, 1));
   renderServicosDoForm(false);
 }
 /* duração total de um atendimento; 30 min como piso pra quem não configurou duração */
